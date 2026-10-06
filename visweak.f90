@@ -377,7 +377,7 @@ real*8 grad(3),IGM_gradnorm,IGM_gradnorm_inter,gradtmp(3)
 integer iIGMtype
 integer,allocatable :: IGMfrag(:,:),IGMfragsize(:) !Definition of each fragment used in IGM, and the number of atoms in each fragment
 real*8,allocatable :: dg_intra(:,:,:) !delta-g_intra of fragments
-real*8,allocatable :: dg_inter(:,:,:) !delta-g_inter between fragment 1 and 2
+real*8,allocatable :: dg_inter(:,:,:) !delta-g_inter between fragments 1 and 2
 real*8,allocatable :: dg(:,:,:) !delta-g
 real*8,allocatable :: sl2r(:,:,:) !sign(lambda2)rho
 real*8,allocatable :: rhogrid(:,:,:) !real density
@@ -1457,7 +1457,7 @@ do while (.true.)
  !   if (iIGMtype==1) write(*,*) "6 Compute TFI(aIGM) and export to TFI_aIGM.cub in current folder"
 	!if (iIGMtype==-1) write(*,*) "6 Compute TFI(amIGM) and export to TFI_amIGM.cub in current folder"
 	!write(*,"(a)") " 7 Evaluate contribution of atomic pairs and atoms to interfragment interaction (atom and atomic pair delta-g indices as well as IBSIW index)"
-	write(*,"(a)") " 8 Compute and export grid data of standard deviation of delta-g_inter and TFI"
+	write(*,"(a)") " 8 Compute and export grid data of standard deviation of delta-g_inter and TFI(amIGM)"
     read(*,*) isel
     
 	if (isel==-3) then
@@ -1606,11 +1606,7 @@ do while (.true.)
 						grad_inter=0
 						IGM_gradnorm_inter=0
 						do ifrag=1,nIGMfrag
-							if (iIGMtype==-1) then !amIGM
-								call IGMgrad_Hirshpromol(tmpx,tmpy,tmpz,IGMfrag(ifrag,1:IGMfragsize(ifrag)),gradtmp(:),rnouse) !Supports PBC
-							else if (iIGMtype==1) then !aIGM
-								call IGMgrad_promol(tmpx,tmpy,tmpz,IGMfrag(ifrag,1:IGMfragsize(ifrag)),gradtmp(:),rnouse) !Supports PBC
-							end if
+							call IGMgrad_Hirshpromol(tmpx,tmpy,tmpz,IGMfrag(ifrag,1:IGMfragsize(ifrag)),gradtmp(:),rnouse) !Supports PBC
 							grad_inter(:)=grad_inter(:)+gradtmp(:)
 							IGM_gradnorm_inter=IGM_gradnorm_inter+dsqrt(sum(gradtmp**2))
 						end do
@@ -1636,18 +1632,9 @@ do while (.true.)
 		open(10,file="stddg_inter.cub",status="replace")
 		call outcube(stddg_inter,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
-        where (dg_inter/=0D0)
-            stddg_inter=stddg_inter/dg_inter
-        elsewhere
-            stddg_inter=0D0
-        end where
-        if (iIGMtype==1) then
-            write(*,*) "Exporting TFI(aIGM) to TFI_aIGM.cub..."
-            open(10,file="TFI_aIGM.cub",status="replace")
-        else
-            write(*,*) "Exporting TFI(amIGM) to TFI_amIGM.cub..."
-            open(10,file="TFI_amIGM.cub",status="replace")
-        end if
+        stddg_inter(:,:,:)=stddg_inter(:,:,:)/dg_inter(:,:,:)
+		write(*,*) "Exporting TFI(amIGM) to TFI_amIGM.cub..."
+		open(10,file="TFI_amIGM.cub",status="replace")
 		call outcube(stddg_inter,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
         write(*,*) "Done!"

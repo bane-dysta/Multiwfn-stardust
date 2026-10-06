@@ -30,7 +30,7 @@ real*8 :: LDOSxpos(num2Dpoints)
 !All ?DOSliney share linexpos(:) as X axis data
 real*8,allocatable :: linexpos(:),TDOSliney(:),TDOSliney_unocc(:),PDOSliney(:,:),OPDOSliney(:),LDOSliney(:),COHPliney(:),COHPliney_unocc(:) !TDOSliney_unocc only records TDOS of unoccupied MOs
 real*8,allocatable :: compfrag(:,:) !i,k element is the composition of fragment k in MO i. compfrag(:,0) is used for recording degeneracy for TDOS
-real*8,allocatable :: OPfrag12(:) !Overlap population between fragment 1 and 2
+real*8,allocatable :: OPfrag12(:) !Overlap population between fragments 1 and 2
 real*8,allocatable :: LDOScomp(:) !Composition at a point of each orbital
 real*8,allocatable :: LDOSptscomp(:,:) !Composition of each MO, ipt in a given line
 real*8,allocatable :: LDOS2Dmap(:,:) !LDOS curve, ipt in a given line
@@ -111,10 +111,9 @@ call setfil("dislin."//trim(graphformat))
 
 ireadgautype=1
 if (ifiletype==0) then
-	!Text header: number of orbitals, then mode. Each orbital requires energy and occupation.
-	!Modes 1/3 read MOene, MOocc; modes 2/4 also read strength and FWHM.
-	!Mode 3 uses eV for energy; mode 4 uses eV for both energy and FWHM.
-	!One value per orbital is insufficient and can misalign list-directed reads.
+	!Read energy level information from text file, the first number in first row define how many energy levels
+	!in there, the second number in first row if equals 1, means below data are only energies, if equals 2,
+	!means both strength and FWHM also present.
 	open(10,file=filename,status="old")
 	call loclabel(10,"Gaussian, Inc",igauout,maxline=100)
 	rewind(10)
