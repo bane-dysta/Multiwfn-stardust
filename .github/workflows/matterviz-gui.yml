@@ -294,6 +294,7 @@ jobs:
             -DMULTIWFN_GUI_BACKEND=matterviz \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-package --parallel 2
+          ./build-matterviz-package/session-input-probe
 
       - name: Build Multiwfn MatterViz executable on Windows
         if: runner.os == 'Windows'
@@ -634,6 +635,7 @@ jobs:
         run: |
           set -euo pipefail
           cp build-matterviz-package/Multiwfn_MatterVizGUI.exe "package/$PKG/Multiwfn_MatterVizGUI.exe"
+          cp build-matterviz-package/Multiwfn.exe "package/$PKG/Multiwfn.exe"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop.exe \
             "package/$PKG/resources/tools/matterviz-desktop.exe"
           if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then
@@ -761,14 +763,25 @@ jobs:
             python3 tests/test_workflow_package.py "$PWD/macos-dist/Multiwfn.app/Contents/MacOS"
           fi
 
-      - name: Test persistent session in extracted Linux package
-        if: runner.os == 'Linux'
+      - name: Test persistent session in extracted package
+        shell: bash
         timeout-minutes: 3
         env:
           MULTIWFN_SESSION_CHECK_DIR: ${{ runner.temp }}/session-live-package
         run: |
-          export MULTIWFN_SESSION_BUILD_DIR="$PWD/clean-test/$PKG"
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            ./build-matterviz-package/session-input-probe.exe
+            export MULTIWFN_SESSION_BUILD_DIR="$PWD/clean-test"
+          else
+            export MULTIWFN_SESSION_BUILD_DIR="$PWD/clean-test/$PKG"
+          fi
           cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test session_live -- --ignored --nocapture --test-threads=1
+          if [ "$RUNNER_OS" = macOS ]; then
+            export MULTIWFN_SESSION_BUILD_DIR="$PWD/macos-dist/Multiwfn.app/Contents/MacOS"
+            export MULTIWFN_SESSION_CHECK_DIR="${MULTIWFN_SESSION_CHECK_DIR}-app"
+            cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test session_live -- --ignored --nocapture --test-threads=1
+          fi
 
       - name: Verify package contents
         shell: bash

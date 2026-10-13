@@ -1,6 +1,6 @@
 //! Real native process and real C++ runner, using menu state and XYZ I/O only.
 //! No electronic-structure calculation or wavefunction analysis is performed.
-#![cfg(target_os = "linux")]
+#![cfg(any(unix, windows))]
 use matterviz_volume_e2e::{service::HttpService, session_engine::SessionEngine};
 use serde_json::{json, Value};
 use std::fs;
@@ -77,6 +77,7 @@ fn persistent_process_preserves_memory_and_gui_transport() {
         .map(PathBuf::from)
         .unwrap_or_else(|| repo.join("build"));
     fs::create_dir(&base).unwrap();
+    let base = base.canonicalize().unwrap();
     let input = base.join("single atom.xyz");
     fs::write(&input, "1\nSession memory fixture\nHe 0.0 0.0 0.0\n").unwrap();
     let library = base.join("scripts");
@@ -89,6 +90,15 @@ fn persistent_process_preserves_memory_and_gui_transport() {
     )
     .unwrap();
     fs::write(library.join("cancel.bw"), "%command\ntouch entered\nsleep 1\ntouch finished-block\nend\n%command\ntouch must-not-run\nend\n").unwrap();
+    #[cfg(windows)]
+    {
+        fs::write(
+            library.join("bad-exit.bw"),
+            "%raw\nq\nend\n%command\necho bad>must-not-run\nend\n",
+        )
+        .unwrap();
+        fs::write(library.join("cancel.bw"), "%command\necho entered>entered\npowershell -NoProfile -Command Start-Sleep -Seconds 2\necho finished>finished-block\nend\n%command\necho bad>must-not-run\nend\n").unwrap();
+    }
     fs::write(library.join("module.bwc"), "[memory]\n%process\nset\nend\n#>>> BANEWFN_INLINE_CONF_BEGIN memory\n# [main]\n# 1000\n# [set]\n# 5\n# 0.125\n# [quit]\n# q\n#<<< BANEWFN_INLINE_CONF_END memory\n").unwrap();
     fs::write(
         library.join("reload.bw"),
@@ -98,19 +108,22 @@ fn persistent_process_preserves_memory_and_gui_transport() {
     fs::write(library.join("memory.cub"), "Memory fixture\nEight stored values\n1 0 0 0\n2 1 0 0\n2 0 1 0\n2 0 0 1\n2 2 0 0 0\n1 2 3 4 5 6\n7 8\n").unwrap();
     fs::write(library.join("load-grid.bw"), "%raw\nr\nmemory.cub\nend\n").unwrap();
     fs::write(library.join("read-grid.bw"), "%raw\n13\n1\n-1\nend\n").unwrap();
+    let resources = if build.join("resources").is_dir() {
+        build.join("resources")
+    } else {
+        build.join("../Resources")
+    };
+    let suffix = std::env::consts::EXE_SUFFIX;
     std::env::set_var(
         "MULTIWFN_WORKFLOW_RUNNER",
-        build.join("resources/tools/multiwfn-workflow"),
+        resources.join(format!("tools/multiwfn-workflow{suffix}")),
     );
     std::env::set_var("MULTIWFN_WORKFLOW_LIBRARY", &library);
-    std::env::set_var(
-        "MULTIWFN_WORKFLOW_CONF",
-        build.join("resources/workflows/conf"),
-    );
+    std::env::set_var("MULTIWFN_WORKFLOW_CONF", resources.join("workflows/conf"));
     let (owner, config, control) = SessionEngine::launch(
-        &build.join("Multiwfn_MatterVizGUI"),
+        &build.join(format!("Multiwfn_MatterVizGUI{suffix}")),
         &input,
-        build.join("resources/frontend/matterviz-viewer/dist"),
+        resources.join("frontend/matterviz-viewer/dist"),
     )
     .unwrap();
     let service = HttpService::start_with_control(config, Some(control)).unwrap();
@@ -192,5 +205,5 @@ fn persistent_process_preserves_memory_and_gui_transport() {
     service.signal_return().unwrap();
     service.shutdown();
     service.join();
-    assert!(!Path::new(&format!("/proc/{}", owner.pid)).exists());
+    assert!(owner.exited().unwrap());
 }

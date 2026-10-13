@@ -160,7 +160,7 @@ impl ControlSession {
 }
 
 impl HttpService {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(unix, windows))]
     pub fn attach_session(
         &self,
         owner: Arc<crate::session_engine::SessionEngine>,
@@ -503,7 +503,7 @@ impl HttpService {
     }
     pub fn signal_return(&self) -> Result<(), String> {
         self.workflows.shutdown();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         if let Some(owner) = self.workflows.session.get() {
             return owner.close();
         }
@@ -972,7 +972,7 @@ impl ServiceRunner {
             self.shutdown.request();
             return;
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         if matches!(
             path.as_str(),
             "/api/orbital" | "/api/bond" | "/api/esp" | "/api/topology" | "/api/surface"
@@ -1249,7 +1249,7 @@ impl ServiceRunner {
         }
     }
     fn signal_return(&self) -> Result<(), String> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         if let Some(owner) = self.workflows.session.get() {
             self.workflows.shutdown();
             return owner.close();

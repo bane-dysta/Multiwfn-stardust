@@ -224,7 +224,7 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
   include(cmake/MatterVizMappedSurfaces.cmake)
 endif()
 
-if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   set(_session_entry "${CMAKE_CURRENT_BINARY_DIR}/generated/session/Multiwfn.f90")
   execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_session_entry.py"
@@ -233,6 +233,14 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz" AND CMA
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS Multiwfn.f90 tools/generate_session_entry.py)
   list(REMOVE_ITEM MULTIWFN_CORE_SOURCES Multiwfn.f90)
   list(APPEND MULTIWFN_CORE_SOURCES "${_session_entry}")
+  add_executable(session-input-probe tests/session_input_probe.f90)
+  if(WIN32)
+    add_executable(Multiwfn WIN32 tools/windows/workflow_launcher.c)
+    target_link_libraries(Multiwfn PRIVATE user32)
+    if(MINGW)
+      target_link_options(Multiwfn PRIVATE -municode)
+    endif()
+  endif()
   configure_file(tools/run-workflows-gui "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui" COPYONLY)
   file(CHMOD "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui"
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)

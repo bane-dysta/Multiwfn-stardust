@@ -4,7 +4,18 @@ use iso_c_binding
 use iso_fortran_env, only: input_unit,output_unit
 implicit none
 logical :: session_enabled=.false.
+logical :: input_open=.false.
 interface
+ type(c_ptr) function mwfn_session_commands() bind(C)
+ import c_ptr
+ end function
+ integer(c_int) function mwfn_session_command_length() bind(C)
+ import c_int
+ end function
+ subroutine mwfn_session_set_end(position) bind(C)
+ import c_int64_t
+ integer(c_int64_t),value :: position
+ end subroutine
  integer(c_int) function mwfn_session_initialize() bind(C)
  import c_int
  end function
@@ -32,15 +43,39 @@ interface
 end interface
 contains
 subroutine matterviz_session_initialize()
-integer :: fd,istat
-character(len=80) :: path
-fd=mwfn_session_initialize()
-if (fd<0) return
-write(path,'(a,i0)') '/proc/self/fd/',fd
-close(input_unit)
-open(unit=input_unit,file=trim(path),access='stream',form='formatted',status='old',iostat=istat)
-if (istat/=0) error stop 'Cannot attach managed input stream'
+if (mwfn_session_initialize()<0) return
 session_enabled=.true.
+end subroutine
+
+subroutine prepare_input()
+character(c_char),pointer :: bytes(:)
+character(len=:),allocatable :: line
+integer :: n,i,start,finish,j,istat
+integer(c_int64_t) :: boundary
+n=mwfn_session_command_length()
+call c_f_pointer(mwfn_session_commands(),bytes,[n])
+close(input_unit)
+open(unit=input_unit,status='scratch',access='stream',form='formatted',action='readwrite',iostat=istat)
+if (istat/=0) error stop 'Cannot create managed input stream'
+input_open=.true.
+allocate(character(len=n) :: line)
+start=1
+do i=1,n
+ if (bytes(i)/=c_new_line) cycle
+ finish=i-1
+ if (finish>=start) then
+  if (bytes(finish)==c_carriage_return) finish=finish-1
+ end if
+ do j=start,finish
+  line(j-start+1:j-start+1)=bytes(j)
+ end do
+ write(input_unit,'(a)') line(:finish-start+1)
+ start=i+1
+end do
+flush(input_unit)
+inquire(unit=input_unit,pos=boundary)
+call mwfn_session_set_end(boundary)
+rewind(input_unit)
 end subroutine
 
 subroutine matterviz_session_read_main(command)
@@ -58,7 +93,8 @@ end if
 rejected=0
 do
  flush(output_unit)
- inquire(unit=input_unit,pos=position)
+ position=1
+ if (input_open) inquire(unit=input_unit,pos=position)
  allocate(file(len(filename)+1))
  file=c_null_char
  do i=1,len_trim(filename)
@@ -71,6 +107,11 @@ do
  end do
  action=mwfn_session_menu(position,file,int(len_trim(filename),c_int),isilent,nthreads,rejected)
  deallocate(file)
+ if (action==3) call prepare_input()
+ if (action==1.or.action==2) then
+  if (input_open) close(input_unit)
+  input_open=.false.
+ end if
  if (action==1) then
   command='0'
   return

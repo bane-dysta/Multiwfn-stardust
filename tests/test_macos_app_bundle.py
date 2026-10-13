@@ -88,7 +88,8 @@ class MacOSAppBundleTests(unittest.TestCase):
 
         content = launcher.read_text(encoding="utf-8")
         self.assertIn("set -euo pipefail", content)
-        self.assertIn('printf "0\\n"', content, "Launcher must pipe option 0 for direct GUI entry")
+        self.assertIn('matterviz-desktop" --launch "$INPUT_FILE"', content,
+                      "Workflow GUI must own its persistent engine")
         self.assertIn("${MULTIWFN_DIRECT_GUI:-0}", content, "Must respect MULTIWFN_DIRECT_GUI flag")
         self.assertIn("MULTIWFN_MATTERVIZ_HOME", content)
         self.assertIn("DYLD_LIBRARY_PATH", content)

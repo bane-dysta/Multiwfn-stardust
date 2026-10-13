@@ -2,43 +2,66 @@
 
 ## Cross-platform Actions validation — 2026-10-13
 
+Release designation: `workflows-session1-ci1`. Final Actions run
+https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38359571705
+completed **success** at commit `fa026cceef74b5a9f3ea4148b3ac3231c1a8d81d`
+on branch `ci/banewfn-session-20261013-final`. All four test jobs passed:
+Linux frontend/Rust/native checks and Linux, Windows, macOS package jobs.
+Tag-only signing and release publication were skipped as intended.
+
 The `matterviz-gui` workflow now builds with `MULTIWFN_WITH_WORKFLOWS=ON`
 on Linux, Windows and macOS. Packages include the C++ runner, conf library,
 starter scripts and license; the macOS app/DMG includes the same resources.
 Extracted-package checks render both `.bw` and `.bwc` recipes, then perform
 single-atom XYZ export through the real bundled engine. Linux additionally
 checks persistent session state and GUI transport against both the build tree
-and the extracted package. Windows/macOS still use the batch backend.
+and the extracted package. Windows/macOS still use the batch backend; their CI
+success does not imply support for the Linux persistent-session backend.
 
 Local checks: 62 build/adapter/package-contract tests passed; extracted-layout
 workflow test passed against `build/`; real persistent-session test passed
-(PID 2405235, 1.92 seconds), after rerunning outside the sandbox to allow sockets.
+(final full-build check: PID 2446725, 1.94 seconds). Socket tests ran outside the
+sandbox. Full local build used `bash tools/build_workflows_gui.sh`; the final
+Windows-only quoting correction was rebuilt with `cmake --build build --target
+multiwfn-workflow --parallel 4` and staged into `build/resources/tools/`.
+Both the 9 C++ runner tests and the native package XYZ check passed afterward.
+The 9 workflow-host tests passed with a symlinked temporary directory and the
+real C++ runner enabled. All 68 scientific sources match the original baseline.
 Rust formatting, workflow YAML parsing, and syntax of all 34 shell steps passed.
-No scientific core files changed and no electronic-structure calculation ran.
+Local new tests only exercise menu state and XYZ/Cube I/O; remote CI additionally
+runs the repository's existing native GUI/orbital and functional regressions.
 
-Remote validation is running on fork branch `ci/banewfn-session-20261013`,
-initial commit `d419a5b9ffe9fadf7af196fabaec36c8d5a88b8f`, Actions run
-https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38356482459.
-The initial macOS desktop test found a fixture-only path mismatch: macOS
-`temp_dir()` starts with `/var` whereas canonical paths start with `/private/var`.
-The fixture now canonicalizes its root like the production file picker does.
-All 9 focused workflow tests pass locally with a symlinked temporary directory.
-Both Linux jobs passed, including the extracted package's live session (1.93 s,
-PID 30665). Windows reached C++ compilation but GCC 16's newer default dialect
-made the vendored runner's `u8` literals incompatible with `std::string`.
-The runner now explicitly selects its required C++17 dialect rather than merely
-requesting C++17 as a minimum feature level. Scientific sources are unchanged.
-The second run is https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38358329798,
-commit `86a9dfebbfcdab8270d01a1bb9b18ad248ee5441`. It passed the previously
-failing macOS desktop tests and reached native compilation.
+CI fixes:
 
-A Windows UCRT `system()` probe additionally confirmed that cmd.exe strips the
-outer executable/redirection quotes without a wrapping quote pair (exit 1 before,
-exit 0 after). Generated batch engine commands now use the required outer pair;
-user `%command` blocks retain their existing handling. The 9 runner regressions
-and real package XYZ check passed after rebuilding the final local runner.
-A separate `ci/banewfn-session-20261013-final` branch validates this correction
-while the second run completes, preserving its diagnostic evidence.
+- Canonicalize the test fixture root: macOS `/var` resolves to `/private/var`,
+  matching the paths returned by production native selection.
+- Explicitly select C++17 for the runner. GCC 16's newer default makes the
+  vendored `u8` literals incompatible with `std::string`; minimum-feature
+  selection alone did not constrain the language dialect.
+- Wrap generated Windows engine command lines in the outer quotes required by
+  `cmd.exe /c`. A Windows UCRT probe returned 1 before and 0 after the correction;
+  the final extracted Windows package now successfully runs the real engine.
+
+Earlier diagnostic runs `38356482459` and `38358329798` are retained. Logs,
+job/artifact metadata and patch checks are in workspace-relative
+`artifacts/2026-10-13/checks/multiwfn-ci/`. WIP-015 onward is in
+`artifacts/2026-10-13/wip/multiwfn-ci/`. Cumulative and session1-r2 incremental
+patches, source archive, WIP bundle and checksums are in
+`artifacts/2026-10-13/deliveries/multiwfn-session-ci1/`.
+
+CI binary downloads (GitHub login required):
+
+- [Windows ZIP](https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38359571705/artifacts/11794582506)
+- [Linux tar.gz](https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38359571705/artifacts/11794144885)
+- [macOS tar.gz](https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38359571705/artifacts/11794673233)
+- [macOS DMG](https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38359571705/artifacts/11794962455)
+
+These are complete cloud artifacts. Optional local downloads were stopped due to
+low throughput; partial downloads under `build/ci-incomplete-downloads/` are not
+deliverables. The complete local Linux/WSL GUI remains ready to run at
+`/home/bane/smokes/Multiwfn-stardust/build/run-workflows-gui [startup-file]`.
+Only this status record differs from the tested commit in the final source
+delivery; executable and CI sources are identical to the passing revision.
 
 ## Current delivery: persistent Linux session — 2026-10-13
 

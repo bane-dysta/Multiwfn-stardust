@@ -32,7 +32,7 @@ struct State {
 }
 
 pub struct WorkflowManager {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(unix, windows))]
     pub session: std::sync::OnceLock<Arc<crate::session_engine::SessionEngine>>,
     runner: Option<PathBuf>,
     conf: PathBuf,
@@ -81,7 +81,7 @@ impl WorkflowManager {
         multiwfn: Option<PathBuf>,
     ) -> Self {
         Self {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(unix, windows))]
             session: std::sync::OnceLock::new(),
             runner,
             conf,
@@ -105,7 +105,7 @@ impl WorkflowManager {
         if state.job.as_ref().is_some_and(active) {
             return Err("A workflow is still running".into());
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         if kind == "wavefunction" {
             if let Some(owner) = self.session.get() {
                 owner.load_file(&path)?;
@@ -173,12 +173,12 @@ impl WorkflowManager {
             json!({"directory":job.directory, "state":job.state, "exitCode":job.code,
                 "message":job.message, "log":log, "files":files})
         });
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         let session_info = self
             .session
             .get()
             .map(|s| json!({"pid":s.pid,"revision":s.revision.load(Ordering::Acquire)}));
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(unix, windows)))]
         let session_info: Option<Value> = None;
         json!({"format":"multiwfn-workflows", "version":1, "available":self.runner.is_some(), "session":session_info,
             "runner":self.runner, "library":state.library, "results":state.results,
@@ -275,11 +275,11 @@ impl WorkflowManager {
         let directory = results.join(format!("workflow-{stamp}-{sequence}"));
         fs::create_dir(&directory).map_err(|e| e.to_string())?;
         let cancel = Arc::new(AtomicBool::new(false));
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         let mut session_bridge = None;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         let session_pid = self.session.get().map(|owner| owner.pid);
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(unix, windows)))]
         let session_pid: Option<u32> = None;
         let prepared = (|| -> Result<(Child, ProcessTree), String> {
             let mut budget = CopyBudget::default();
@@ -325,7 +325,7 @@ impl WorkflowManager {
             {
                 command.env_remove(key);
             }
-            #[cfg(target_os = "linux")]
+            #[cfg(any(unix, windows))]
             let session_client = if let Some(owner) = self.session.get() {
                 command.env("BANEWFN_SESSION_MODE", "1");
                 if !dry_run {
@@ -344,8 +344,15 @@ impl WorkflowManager {
                 "cores":cores,"variables":variables,"dryRun":dry_run,
                 "sessionPid":session_pid
             })).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-            let child = ProcessTree::spawn(command);
-            #[cfg(target_os = "linux")]
+            let mut child = ProcessTree::spawn(command);
+            if let (Ok((process, _)), Some(client)) = (&mut child, &session_client) {
+                if let Err(error) = client.complete(process) {
+                    let _ = process.kill();
+                    let _ = process.wait();
+                    return Err(error.to_string());
+                }
+            }
+            #[cfg(any(unix, windows))]
             drop(session_client);
             child
         })();
@@ -370,11 +377,11 @@ impl WorkflowManager {
             cancel: cancel.clone(),
         });
         let shared = self.state.clone();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         let session_owner = self.session.get().cloned();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         let persistent = session_owner.is_some();
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(unix, windows)))]
         let persistent = false;
         *worker = Some(thread::spawn(move || {
             let mut outcome = loop {
@@ -409,7 +416,7 @@ impl WorkflowManager {
                     }
                 }
             };
-            #[cfg(target_os = "linux")]
+            #[cfg(any(unix, windows))]
             if let Some(bridge) = session_bridge {
                 match bridge.join() {
                     Ok(Ok(())) => {}
@@ -423,7 +430,7 @@ impl WorkflowManager {
             // No helper or Multiwfn descendant may outlive the workflow owner.
             tree.terminate();
             let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
-            #[cfg(target_os = "linux")]
+            #[cfg(any(unix, windows))]
             if let Some(owner) = session_owner {
                 let file = owner.file();
                 if !state.results_selected {
@@ -1012,7 +1019,7 @@ mod tests {
             .unwrap();
         f.manager.cancel();
         assert_eq!(f.finish()["job"]["state"], "cancelled");
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
             assert_eq!(stat.split(") ").nth(1).unwrap().chars().next(), Some('Z'));
         }

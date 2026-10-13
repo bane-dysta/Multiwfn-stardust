@@ -40,12 +40,19 @@ done
 # Launch Multiwfn
 if [[ -n "$INPUT_FILE" ]]; then
   # When MULTIWFN_DIRECT_GUI=1 is set (e.g. by native Cocoa launcher on Finder open):
-  # pass file as first argument and pipe main menu option 0 (View molecular structure & orbitals)
+  # Workflow-enabled bundles use a desktop-owned persistent engine.
   if [[ "${MULTIWFN_DIRECT_GUI:-0}" == "1" ]]; then
+    if [[ -x "$RESOURCES_DIR/tools/multiwfn-workflow" ]]; then
+      exec "$RESOURCES_DIR/tools/matterviz-desktop" --launch "$INPUT_FILE"
+    fi
     printf "0\n" | exec "$BINARY" "$INPUT_FILE"
   else
     exec "$BINARY" "$@"
   fi
 else
-  exec "$BINARY" "$@"
+  if [[ $# -eq 0 && -x "$RESOURCES_DIR/tools/multiwfn-workflow" ]]; then
+    exec "$RESOURCES_DIR/tools/matterviz-desktop" --launch
+  else
+    exec "$BINARY" "$@"
+  fi
 fi

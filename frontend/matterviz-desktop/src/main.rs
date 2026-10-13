@@ -11,8 +11,9 @@ pub mod plot_protocol;
 pub mod plot_store;
 mod service;
 mod session_data;
-#[cfg(target_os = "linux")]
+#[cfg(any(unix, windows))]
 mod session_engine;
+mod session_pipe;
 mod shutdown;
 mod stream_broker;
 mod transport;
@@ -37,7 +38,7 @@ use lifecycle::StartupStatus;
 use service::HttpService;
 
 fn main() -> ExitCode {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(unix, windows))]
     if env::args().nth(1).as_deref() == Some("--launch") {
         return launch_session();
     }
@@ -105,7 +106,7 @@ fn main() -> ExitCode {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(unix, windows))]
 fn launch_session() -> ExitCode {
     let launch = || -> Result<(Arc<HttpService>, Arc<session_engine::SessionEngine>), String> {
         let executable = env::current_exe().map_err(|e| e.to_string())?;
@@ -114,6 +115,15 @@ fn launch_session() -> ExitCode {
             .and_then(Path::parent)
             .ok_or("Invalid desktop installation")?;
         let root = resources.parent().ok_or("Missing Multiwfn installation")?;
+        let engine = if resources.file_name().is_some_and(|n| n == "Resources") {
+            root.join("MacOS/Multiwfn_MatterVizGUI")
+        } else {
+            root.join(if cfg!(windows) {
+                "Multiwfn_MatterVizGUI.exe"
+            } else {
+                "Multiwfn_MatterVizGUI"
+            })
+        };
         let input = match env::args_os().nth(2) {
             Some(path) => std::path::PathBuf::from(path),
             None => file_dialog::select_file(Path::new(""))
@@ -121,7 +131,7 @@ fn launch_session() -> ExitCode {
                 .ok_or("No startup file selected")?,
         };
         let (owner, config, control) = session_engine::SessionEngine::launch(
-            &root.join("Multiwfn_MatterVizGUI"),
+            &engine,
             &input,
             resources.join("frontend/matterviz-viewer/dist"),
         )?;
@@ -142,6 +152,12 @@ fn launch_session() -> ExitCode {
         ),
         Err(error) => {
             eprintln!("Multiwfn session: {error}");
+            #[cfg(any(windows, target_os = "macos"))]
+            rfd::MessageDialog::new()
+                .set_title("Multiwfn")
+                .set_description(&error)
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             ExitCode::from(2)
         }
     }
