@@ -199,6 +199,16 @@ static std::string buildMultiwfnInvocation(const std::string& multiwfnExec,
     return cmd.str();
 }
 
+static int runWorkflowInvocation(const std::string& command) {
+#ifdef _WIN32
+    // system() invokes cmd.exe /c, which otherwise removes the first and last
+    // quotes from a command containing a quoted executable and redirections.
+    return std::system(("\"" + command + "\"").c_str());
+#else
+    return std::system(command.c_str());
+#endif
+}
+
 static void waitForAnyKeyToExit() {
     std::cout << "\nDebug mode: Press any key to exit..." << std::flush;
 
@@ -1583,7 +1593,7 @@ private:
         std::cout << "Starting Multiwfn process..." << std::endl;
 
         // Execute command
-        int result = system(cmd.str().c_str());
+        int result = runWorkflowInvocation(cmd.str());
 
         // Clean up command file only if not in dryrun mode
         if (!options.dryrun) {
@@ -2276,7 +2286,7 @@ private:
             std::cout << (SessionExecution::enabled() ? "Running in the current Multiwfn session..." : "Starting Multiwfn process...") << std::endl;
             int result = SessionExecution::enabled()
                 ? (SessionExecution::execute(commandText,outFile,sourceWfn,cores) ? 0 : 1)
-                : system(cmd.str().c_str());
+                : runWorkflowInvocation(cmd.str());
             cleanUpExecutionTempFile(cmdFileName, options);
             success = (result == 0);
             if (success) {

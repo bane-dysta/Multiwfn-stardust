@@ -28,7 +28,17 @@ PID 30665). Windows reached C++ compilation but GCC 16's newer default dialect
 made the vendored runner's `u8` literals incompatible with `std::string`.
 The runner now explicitly selects its required C++17 dialect rather than merely
 requesting C++17 as a minimum feature level. Scientific sources are unchanged.
-The corrected three-platform rerun is pending.
+The second run is https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38358329798,
+commit `86a9dfebbfcdab8270d01a1bb9b18ad248ee5441`. It passed the previously
+failing macOS desktop tests and reached native compilation.
+
+A Windows UCRT `system()` probe additionally confirmed that cmd.exe strips the
+outer executable/redirection quotes without a wrapping quote pair (exit 1 before,
+exit 0 after). Generated batch engine commands now use the required outer pair;
+user `%command` blocks retain their existing handling. The 9 runner regressions
+and real package XYZ check passed after rebuilding the final local runner.
+A separate `ci/banewfn-session-20261013-final` branch validates this correction
+while the second run completes, preserving its diagnostic evidence.
 
 ## Current delivery: persistent Linux session — 2026-10-13
 
