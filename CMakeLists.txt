@@ -236,6 +236,7 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
   add_executable(session-input-probe tests/session_input_probe.f90)
   if(WIN32)
     add_executable(Multiwfn WIN32 tools/windows/workflow_launcher.c)
+    install(TARGETS Multiwfn RUNTIME DESTINATION bin COMPONENT workflows)
     target_link_libraries(Multiwfn PRIVATE user32)
     if(MINGW)
       target_link_options(Multiwfn PRIVATE -municode)
@@ -361,6 +362,10 @@ endif()
 if(WIN32)
   target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_WINDOWS)
   target_sources(${MULTIWFN_EXECUTABLE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Multiwfn.rc")
+  if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
+    target_sources(${MULTIWFN_EXECUTABLE_NAME} PRIVATE frontend/workflows/windows/utf8.rc)
+    target_include_directories(${MULTIWFN_EXECUTABLE_NAME} PRIVATE frontend/workflows/windows)
+  endif()
 endif()
 target_include_directories(${MULTIWFN_EXECUTABLE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/ext")
 target_link_libraries(${MULTIWFN_EXECUTABLE_NAME} PRIVATE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
@@ -385,6 +390,14 @@ if(MULTIWFN_WITH_OPENMP)
 endif()
 
 if(APPLE AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
+  set(_macos_workflow_args)
+  set(_macos_workflow_dependencies)
+  if(MULTIWFN_WITH_WORKFLOWS)
+    list(APPEND _macos_workflow_args
+      --workflow-runner "$<TARGET_FILE:multiwfn-workflow>"
+      --workflow-resources "${CMAKE_CURRENT_BINARY_DIR}/resources/workflows")
+    list(APPEND _macos_workflow_dependencies multiwfn_workflow_resources)
+  endif()
   add_custom_target(multiwfn_macos_app
     COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tools/macos/package_macos_app.sh"
       --binary "$<TARGET_FILE:${MULTIWFN_EXECUTABLE_NAME}>"
@@ -393,7 +406,8 @@ if(APPLE AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
       --settings "${CMAKE_CURRENT_SOURCE_DIR}/settings.ini"
       --output-dir "${CMAKE_CURRENT_BINARY_DIR}/macos-app"
       --create-dmg
-    DEPENDS ${MULTIWFN_EXECUTABLE_NAME} multiwfn_matterviz_resources
+      ${_macos_workflow_args}
+    DEPENDS ${MULTIWFN_EXECUTABLE_NAME} multiwfn_matterviz_resources ${_macos_workflow_dependencies}
     COMMENT "Packaging macOS Multiwfn.app bundle and DMG installer"
     VERBATIM
   )

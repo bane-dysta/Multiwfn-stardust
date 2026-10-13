@@ -31,6 +31,8 @@ it does not silently switch to the batch backend.
 Engine startup logs are under the user's temporary directory in
 `multiwfn-session-logs`. The adapter uses private pipes and Fortran scratch input
 streams, so it does not need to write into the installation or application bundle.
+Windows workflow builds embed a UTF-8 process manifest in both the engine and
+runner to keep native path handling consistent with the desktop protocol.
 
 ## Build and install
 

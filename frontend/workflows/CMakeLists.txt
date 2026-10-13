@@ -10,6 +10,16 @@ set(BANEWFN_SOURCES
 )
 list(TRANSFORM BANEWFN_SOURCES PREPEND "banewfn/src/")
 add_executable(multiwfn-workflow main.cpp ${BANEWFN_SOURCES})
+if(WIN32)
+  if(MSVC)
+    target_link_options(multiwfn-workflow PRIVATE "/MANIFEST:EMBED"
+      "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/windows/utf8.manifest")
+  else()
+    enable_language(RC)
+    target_sources(multiwfn-workflow PRIVATE windows/utf8.rc)
+    target_include_directories(multiwfn-workflow PRIVATE windows)
+  endif()
+endif()
 target_include_directories(multiwfn-workflow PRIVATE banewfn/src)
 target_compile_features(multiwfn-workflow PRIVATE cxx_std_17)
 set_target_properties(multiwfn-workflow PROPERTIES
