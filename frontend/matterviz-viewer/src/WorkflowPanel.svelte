@@ -1,0 +1,283 @@
+<script lang="ts">
+  import { onDestroy } from 'svelte'
+  import { Workflow, FolderOpen, FileCode2, FileText, Play, Square, Check, X, Terminal, Cpu, SlidersHorizontal } from '@lucide/svelte'
+  import * as Tabs from '$lib/components/ui/tabs'
+  import { t } from './i18n'
+  import { create_workflow_client, workflow_active, workflow_variables, type WorkflowStatus, type WorkflowSelection } from './workflows'
+
+  export let open = false
+  export let onclose: (() => void) | undefined = undefined
+  export let onrefresh: (() => void) | undefined = undefined
+  const client = create_workflow_client()
+  let status: WorkflowStatus | undefined
+  let selected = ''
+  let source = ''
+  let variables = ''
+  let cores = 1
+  let error = ''
+  let busy = false
+  let wasOpen = false
+  let destroyed = false
+  let previewGeneration = 0
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let dialog: HTMLDialogElement | undefined
+  let outputView: 'log' | 'files' = 'log'
+  let activeTab = 'settings'
+
+  const show_error = (reason: unknown): void => { if (!destroyed) error = reason instanceof Error ? reason.message : String(reason) }
+  const preview = async (id: string): Promise<void> => {
+    selected = id; source = ''
+    const generation = ++previewGeneration
+    if (!id) return
+    try {
+      const text = await client.preview(id)
+      if (!destroyed && generation === previewGeneration) source = text
+    } catch (reason) { if (generation === previewGeneration) show_error(reason) }
+  }
+  const apply = (next: WorkflowStatus): void => {
+    if (destroyed) return
+    if (status?.session && next.session && status.session.revision !== next.session.revision) onrefresh?.()
+    status = next
+    if (!next.scripts.some((script) => script.id === selected)) void preview(next.scripts[0]?.id ?? '')
+  }
+  const schedule = (): void => {
+    if (timer) clearTimeout(timer)
+    if (!destroyed && workflow_active(status?.job ?? null)) timer = setTimeout(() => void refresh(), 700)
+  }
+  const refresh = async (): Promise<void> => {
+    try { apply(await client.status()) } catch (reason) { show_error(reason) }
+    schedule()
+  }
+  const pick = async (kind: WorkflowSelection): Promise<void> => {
+    if (busy) return
+    busy = true; error = ''
+    try {
+      apply(await client.pick(kind))
+      if (kind === 'library') await preview(status?.scripts[0]?.id ?? '')
+    } catch (reason) { show_error(reason) }
+    finally { busy = false; schedule() }
+  }
+  const run = async (dryRun: boolean): Promise<void> => {
+    if (busy || workflow_active(status?.job ?? null)) return
+    busy = true; error = ''; outputView = 'log'
+    try {
+      apply(await client.run({ script: selected, cores, variables: workflow_variables(variables), dryRun }))
+      activeTab = 'results'
+    }
+    catch (reason) { show_error(reason); await refresh() }
+    finally { busy = false; schedule() }
+  }
+  const cancel = async (): Promise<void> => {
+    busy = true; error = ''
+    try { apply(await client.cancel()) } catch (reason) { show_error(reason) }
+    finally { busy = false; schedule() }
+  }
+  $: running = workflow_active(status?.job ?? null)
+  $: canRun = status?.available && selected && status?.results && status?.multiwfn && !running && !busy
+  $: sourceLines = source ? source.split('\n').map((_, index) => index + 1).join('\n') : ''
+  $: if (open && dialog && !dialog.open) dialog.showModal()
+  $: {
+    if (open && !wasOpen) { error = ''; void refresh() }
+    wasOpen = open
+  }
+  onDestroy(() => { destroyed = true; previewGeneration++; if (timer) clearTimeout(timer) })
+</script>
+
+{#if open}
+  <dialog bind:this={dialog} class="workflow-panel" aria-labelledby="workflow-heading" oncancel={(event) => { event.preventDefault(); onclose?.() }}>
+    <header class="workflow-header">
+      <div class="workflow-title"><span class="workflow-mark"><Workflow size={20} /></span><h2 id="workflow-heading">{$t('Workflows')}</h2></div>
+      <button class="workflow-close" type="button" aria-label={$t('Close workflows')} onclick={onclose}><X size={20} /></button>
+    </header>
+    {#if status?.session}<p class="workflow-session">{$t('Current session')} · PID {status.session.pid}</p>{/if}
+    {#if error}<p class="workflow-error workflow-banner" role="alert">{$t(error)}</p>{/if}
+    {#if status?.available === false}<p class="workflow-error workflow-banner" role="alert">{$t('Install the optional workflow runner to use this panel.')}</p>{/if}
+    {#if status?.available && !status.multiwfn}<p class="workflow-error workflow-banner" role="alert">{$t('The running Multiwfn executable could not be located.')}</p>{/if}
+    <div class="workflow-layout">
+      <section class="workflow-library" aria-labelledby="workflow-library-heading">
+        <div class="workflow-catalog">
+          <div class="workflow-section-heading">
+            <h3 id="workflow-library-heading">{$t('Scripts')} <span class="workflow-count">{status?.scripts.length ?? 0}</span></h3>
+            <button class="workflow-folder" type="button" aria-label={$t('Choose script folder')} title={$t('Choose script folder')} onclick={() => pick('library')} disabled={busy || running}><FolderOpen size={17} /></button>
+          </div>
+          <p class="workflow-library-path" title={status?.library ?? ''}>{status?.library ?? '—'}</p>
+          {#if status?.catalogError}<p class="workflow-error" role="alert">{status.catalogError}</p>{/if}
+          <div class="workflow-script-list" role="group" aria-label={$t('Scripts')}>
+            {#each status?.scripts ?? [] as script}
+              <button class="workflow-script" class:selected={selected === script.id} type="button" aria-pressed={selected === script.id} title={script.id} disabled={busy || running} onclick={() => preview(script.id)}>
+                <FileCode2 size={17} /><span>{script.id}</span><span class="workflow-extension">{script.id.endsWith('.bwc') ? 'BWC' : 'BW'}</span>
+              </button>
+            {/each}
+            {#if status && !status.scripts.length}<p class="workflow-empty">{$t('No .bw or .bwc scripts found.')}</p>{/if}
+          </div>
+        </div>
+      </section>
+      <section class="workflow-execution" aria-label={$t('Workflow pages')}>
+        <Tabs.Root bind:value={activeTab} class="grid grid-rows-[auto_minmax(0,1fr)] flex-1 min-h-0 min-w-0 gap-0">
+          <div class="workflow-tab-bar">
+            <Tabs.List variant="line" aria-label={$t('Workflow pages')} class="h-11 w-full gap-1">
+              <Tabs.Trigger value="settings" class="min-w-0 px-2 text-[13px] transition-none after:transition-none"><SlidersHorizontal size={16} />{$t('Parameters')}</Tabs.Trigger>
+              <Tabs.Trigger value="preview" class="min-w-0 px-2 text-[13px] transition-none after:transition-none"><FileCode2 size={16} />{$t('Script preview')}</Tabs.Trigger>
+              <Tabs.Trigger value="results" class="min-w-0 px-2 text-[13px] transition-none after:transition-none"><FileText size={16} />{$t('Results')}</Tabs.Trigger>
+            </Tabs.List>
+          </div>
+          <Tabs.Content value="settings" class="min-h-0 min-w-0 overflow-auto m-0">
+            <div class="workflow-settings">
+              <div class="workflow-field">
+                <label for="workflow-startup">{$t('Startup file')}</label>
+                <button id="workflow-startup" class="workflow-picker" class:unselected={!status?.wavefunction} type="button" aria-label={$t(status?.session ? 'Load startup file' : 'Choose startup file')} title={status?.wavefunction ?? $t('Choose startup file')} onclick={() => pick('wavefunction')} disabled={busy || running}><span>{status?.wavefunction ?? $t('Choose startup file')}</span><FolderOpen size={17} /></button>
+              </div>
+              <div class="workflow-field">
+                <label for="workflow-results">{$t('Results folder')}</label>
+                <button id="workflow-results" class="workflow-picker" class:unselected={!status?.results} type="button" aria-label={$t('Choose results folder')} title={status?.results ?? $t('Choose results folder')} onclick={() => pick('results')} disabled={busy || running}><span>{status?.results ?? $t('Choose results folder')}</span><FolderOpen size={17} /></button>
+              </div>
+              <div class="workflow-parameters">
+                <div class="workflow-field"><label for="workflow-cores"><Cpu size={14} />{$t('CPU cores')}</label><input id="workflow-cores" type="number" min="1" max="1024" step="1" bind:value={cores} disabled={busy || running} /></div>
+                <div class="workflow-field"><label for="workflow-variables">{$t('Variables')}</label><textarea id="workflow-variables" rows="2" bind:value={variables} placeholder="grid=1" disabled={busy || running}></textarea></div>
+              </div>
+            </div>
+          </Tabs.Content>
+          <Tabs.Content value="preview" class="min-h-0 min-w-0 m-0">
+            <div class="workflow-preview-page">
+              <section class="workflow-preview" aria-label={$t('Script preview')}>
+                <div class="workflow-preview-heading"><FileCode2 size={16} /><span title={selected}>{selected || '—'}</span></div>
+                <div class="workflow-code">
+                  <pre class="workflow-line-numbers" aria-hidden="true">{sourceLines}</pre>
+                  <pre class="workflow-source"><code>{source}</code></pre>
+                </div>
+              </section>
+            </div>
+          </Tabs.Content>
+          <Tabs.Content value="results" class="min-h-0 min-w-0 m-0">
+            <section class="workflow-output" aria-label={$t('Workflow output')}>
+              <div class="workflow-output-heading">
+                <div class="workflow-output-switch" role="group" aria-label={$t('Workflow output')}>
+                  <button type="button" class:active={outputView === 'log'} aria-pressed={outputView === 'log'} onclick={() => outputView = 'log'}><Terminal size={15} />{$t('Log')}</button>
+                  <button type="button" class:active={outputView === 'files'} aria-pressed={outputView === 'files'} onclick={() => outputView = 'files'}><FileText size={15} />{$t('Result files')}</button>
+                </div>
+              </div>
+              {#if status?.job}
+                {#if status.job.message}<p class="workflow-error workflow-job-message" role="alert">{$t(status.job.message)}</p>{/if}
+                {#if status.job.exitCode !== null && status.job.exitCode !== 0}<p class="workflow-error workflow-job-message">{$t('Exit code')}: {status.job.exitCode}</p>{/if}
+                {#if outputView === 'log'}
+                  <pre class="workflow-log">{status.job.log}</pre>
+                {:else}
+                  <div class="workflow-result-files"><p class="workflow-result-path">{status.job.directory}</p><ul>{#each status.job.files as file}<li><FileText size={14} /><span>{file}</span></li>{/each}</ul></div>
+                {/if}
+              {:else}
+                <div class="workflow-output-empty"><Terminal size={24} /><p>{$t('No runs yet')}</p></div>
+              {/if}
+            </section>
+          </Tabs.Content>
+        </Tabs.Root>
+        <div class="workflow-footer">
+          <div class="workflow-status">{#if status?.job}<span class="workflow-state" class:running class:failed={status.job.state === 'failed'} role="status"><span></span>{$t(status.session && status.job.state === 'cancelling' ? 'Stopping after current block' : status.job.state)}</span>{/if}</div>
+          <div class="workflow-actions">
+            <button type="button" disabled={!canRun} onclick={() => run(true)}><Check size={16} />{$t('Preflight')}</button>
+            {#if running}
+              <button type="button" class="workflow-stop" disabled={busy} onclick={cancel}><Square size={15} />{$t('Cancel workflow')}</button>
+            {:else}
+              <button type="button" class="workflow-primary" disabled={!canRun} onclick={() => run(false)}><Play size={16} />{$t('Run workflow')}</button>
+            {/if}
+          </div>
+        </div>
+      </section>
+    </div>
+  </dialog>
+{/if}
+
+<style>
+  .workflow-session { margin: 0; padding: 0 22px 8px; font-size: 13px; color: var(--muted-foreground); }
+  .workflow-panel::backdrop { background: #18293866; backdrop-filter: blur(3px); }
+  .workflow-panel { position: fixed; inset: 0; margin: auto; padding: 0; width: min(1120px, calc(100% - 48px)); height: min(760px, calc(100dvh - 48px)); max-width: none; max-height: none; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 16px; background: var(--ui-background); color: var(--ui-foreground); box-shadow: 0 24px 80px #13253440; font-size: 13px; }
+  .workflow-panel[open] { display: flex; flex-direction: column; }
+  .workflow-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 18px 24px; border-bottom: 1px solid var(--ui-border); }
+  .workflow-title { display: flex; align-items: center; gap: 12px; }
+  .workflow-mark { display: grid; place-items: center; width: 36px; height: 36px; background: var(--ui-accent); color: var(--ui-primary); border-radius: 10px; }
+  h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
+  h3 { margin: 0; font-size: 14px; font-weight: 600; }
+  button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; height: auto; padding: 7px 12px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-background); color: var(--ui-foreground); font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--ui-muted); border-color: #b5c5d1; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--ui-ring); outline-offset: 2px; }
+  button :global(svg) { flex-shrink: 0; }
+  .workflow-close { width: 36px; padding: 0; border-color: transparent; color: var(--ui-muted-foreground); }
+  .workflow-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 7fr); flex: 1; min-height: 0; }
+  .workflow-library, .workflow-execution { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .workflow-library { padding: 22px 18px; background: #f7f9fb; border-right: 1px solid var(--ui-border); }
+  .workflow-catalog { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .workflow-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .workflow-section-heading h3 { display: flex; align-items: center; gap: 8px; }
+  .workflow-count { display: inline-flex; justify-content: center; min-width: 22px; padding: 1px 6px; border-radius: 5px; background: #e7edf2; color: var(--ui-muted-foreground); font-size: 12px; }
+  .workflow-folder { width: 34px; min-height: 34px; padding: 0; }
+  .workflow-library-path { margin: 10px 0 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-muted-foreground); font: 12px/1.5 ui-monospace, monospace; }
+  .workflow-script-list { display: grid; flex: 1; align-content: start; gap: 5px; min-height: 0; overflow: auto; padding: 2px; margin: -2px; }
+  .workflow-script { width: 100%; justify-content: flex-start; min-height: 40px; padding: 8px 12px; border-color: transparent; background: transparent; text-align: left; }
+  .workflow-script > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .workflow-script.selected, .workflow-script.selected:hover:not(:disabled) { background: var(--ui-accent); color: var(--ui-primary); border-color: #c5dfe7; }
+  .workflow-extension { font: 11px/1.4 ui-monospace, monospace; color: var(--ui-muted-foreground); background: #ffffffa6; padding: 2px 5px; border-radius: 4px; }
+  .workflow-tab-bar { padding: 12px 24px 0; border-bottom: 1px solid var(--ui-border); }
+  .workflow-preview-page { display: flex; height: 100%; padding: 24px; }
+  .workflow-preview { display: flex; flex-direction: column; flex: 1; min-height: 0; border: 1px solid var(--ui-border); border-radius: 9px; overflow: hidden; background: var(--ui-background); }
+  .workflow-preview-heading { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 14px; border-bottom: 1px solid var(--ui-border); color: var(--ui-muted-foreground); }
+  .workflow-preview-heading > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px/1.5 ui-monospace, monospace; }
+  .workflow-code { display: flex; flex: 1; min-height: 0; overflow: auto; }
+  .workflow-code pre { margin: 0; padding: 16px 14px; font: 13px/1.85 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+  .workflow-line-numbers { flex-shrink: 0; text-align: right; color: #99a6b5; background: #fafbfc; user-select: none; }
+  .workflow-source { flex: 1; color: #354559; }
+  .workflow-source code { font: inherit; }
+  .workflow-settings { padding: 28px 24px; }
+  .workflow-field { min-width: 0; margin-bottom: 22px; }
+  label { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; font-size: 13px; }
+  .workflow-picker { width: 100%; justify-content: space-between; min-height: 39px; text-align: left; }
+  .workflow-picker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.5 ui-monospace, monospace; }
+  .workflow-picker :global(svg) { color: var(--ui-muted-foreground); }
+  .workflow-picker.unselected > span { font: inherit; color: var(--ui-muted-foreground); }
+  .workflow-parameters { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 20px; }
+  input, textarea { width: 100%; height: 39px; border: 1px solid var(--ui-border); border-radius: 7px; padding: 9px 11px; background: var(--ui-background); color: inherit; font: inherit; }
+  textarea { display: block; height: 128px; min-height: 128px; max-height: 128px; resize: none; font: 13px/1.6 ui-monospace, monospace; }
+  textarea::placeholder { color: #95a2b1; }
+  .workflow-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--ui-border); }
+  .workflow-status { min-width: 0; }
+  .workflow-actions { display: flex; gap: 10px; }
+  .workflow-actions button { min-height: 40px; padding: 8px 18px; font-weight: 500; }
+  .workflow-primary, .workflow-primary:hover:not(:disabled) { background: var(--ui-primary); color: var(--ui-primary-foreground); border-color: var(--ui-primary); }
+  .workflow-primary:hover:not(:disabled) { background: #125b72; }
+  .workflow-stop, .workflow-stop:hover:not(:disabled) { background: #fff2f0; color: #b42318; border-color: #f0c4be; }
+  .workflow-output { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #fafbfc; }
+  .workflow-output-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--ui-border); }
+  .workflow-output-switch { display: flex; gap: 4px; }
+  .workflow-output-switch button { min-height: 30px; padding: 5px 8px; border-color: transparent; background: transparent; color: var(--ui-muted-foreground); white-space: nowrap; }
+  .workflow-output-switch button.active { background: #eaf0f4; color: var(--ui-foreground); }
+  .workflow-state { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 12px; color: #28755a; }
+  .workflow-state > span { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .workflow-state.running { color: var(--ui-primary); }
+  .workflow-state.failed { color: #b42318; }
+  .workflow-log { flex: 1; min-height: 0; margin: 0; padding: 16px 24px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #526276; font: 12px/1.8 ui-monospace, monospace; }
+  .workflow-result-files { flex: 1; min-height: 0; padding: 16px 24px; overflow: auto; font: 12px/1.8 ui-monospace, monospace; }
+  .workflow-result-path { margin: 0 0 12px; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
+  ul { padding: 0; margin: 0; list-style: none; }
+  li { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; overflow-wrap: anywhere; }
+  li :global(svg) { flex-shrink: 0; margin-top: 4px; color: var(--ui-muted-foreground); }
+  li span { min-width: 0; }
+  .workflow-output-empty { display: flex; flex: 1; align-items: center; justify-content: center; flex-direction: column; gap: 10px; padding: 24px; color: #8b98a8; }
+  .workflow-output-empty p, .workflow-empty { margin: 0; }
+  .workflow-empty { padding: 16px 0; color: var(--ui-muted-foreground); }
+  .workflow-error { margin: 10px 0; color: #b42318; font-size: 13px; overflow-wrap: anywhere; }
+  .workflow-banner { flex-shrink: 0; margin: 0; padding: 12px 24px; background: #fff2f0; border-bottom: 1px solid #f0d3cf; }
+  .workflow-job-message { flex-shrink: 0; margin: 0; padding: 10px 24px 0; }
+  @media (max-width: 760px) {
+    .workflow-panel { width: calc(100% - 24px); height: calc(100dvh - 24px); border-radius: 12px; }
+    .workflow-header { padding: 14px 18px; }
+    .workflow-layout { grid-template-columns: 1fr; grid-template-rows: 190px minmax(0, 1fr); }
+    .workflow-library { padding: 12px 18px; border-right: 0; border-bottom: 1px solid var(--ui-border); }
+    .workflow-tab-bar { padding: 8px 12px 0; }
+    .workflow-preview-page { padding: 18px; }
+    .workflow-settings { padding: 20px 18px; }
+    .workflow-footer { padding: 12px 18px; flex-wrap: wrap; }
+    .workflow-actions { margin-left: auto; }
+    .workflow-actions button { padding: 8px 12px; }
+    .workflow-output-heading { padding: 10px 12px; }
+    .workflow-parameters { grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
+  }
+</style>

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/matterviz-gui
+      - 'ci/banewfn-*'
     tags:
       - 'matterviz-preview-*'
       - 'v*-matterviz.*'
@@ -17,7 +18,16 @@ on:
       - noGUI/dislin_d_empty.f90
       - noGUI/matterviz_plot_capture.f90
       - noGUI/matterviz_spawn.c
+      - noGUI/matterviz_session.*
+      - noGUI/matterviz_file_dialog.c
+      - tools/generate_session_entry.py
+      - tools/run-workflows-gui
+      - tests/test_session_entry.py
+      - tests/test_workflow_package.py
       - frontend/matterviz-desktop/**
+      - frontend/workflows/**
+      - tests/test_workflow_runner.py
+      - docs/workflows.md
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py
       - tests/test_matterviz_mapped_surfaces.py
@@ -96,6 +106,12 @@ jobs:
       - name: Validate MatterViz WebView configuration
         run: python3 frontend/matterviz-desktop/scripts/validate-config.py
 
+      - name: Test optional BaneWfn batch runner
+        run: |
+          cmake -S frontend/workflows -B build/workflow-runner -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/workflow-runner --parallel 4
+          python3 -m unittest discover -s tests -p test_workflow_runner.py -v
+
       - name: Test MatterViz Rust host
         working-directory: frontend/matterviz-desktop
         run: |
@@ -115,6 +131,8 @@ jobs:
           cargo build --release --locked
 
       - name: Test C-to-Rust binary volume transport
+        env:
+          MULTIWFN_TEST_WORKFLOW_RUNNER: ${{ github.workspace }}/build/workflow-runner/multiwfn-workflow
         run: |
           cargo fmt --manifest-path tests/matterviz-volume-e2e/Cargo.toml -- --check
           cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked
@@ -122,19 +140,37 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py tests/test_session_entry.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
           set -euo pipefail
           cmake -S . -B build-matterviz-gui -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DMULTIWFN_WITH_WORKFLOWS=ON \
             -DMULTIWFN_GUI_BACKEND=matterviz \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-gui --parallel 2
           test -x build-matterviz-gui/Multiwfn_MatterVizGUI
           test -x build-matterviz-gui/resources/tools/matterviz-desktop
           test -f build-matterviz-gui/resources/frontend/matterviz-viewer/dist/index.html
+          test -x build-matterviz-gui/resources/tools/matterviz-file-dialog
+          test -x build-matterviz-gui/run-workflows-gui
+
+      - name: Test persistent Multiwfn session
+        timeout-minutes: 3
+        env:
+          MULTIWFN_SESSION_BUILD_DIR: ${{ github.workspace }}/build-matterviz-gui
+          MULTIWFN_SESSION_CHECK_DIR: ${{ runner.temp }}/session-live-build
+        run: cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test session_live -- --ignored --nocapture --test-threads=1
+
+      - name: Upload session diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterviz-build-diagnostics
+          path: ${{ runner.temp }}/session-live-build
+          if-no-files-found: ignore
 
   package:
     name: Package MatterViz WebView (${{ matrix.platform }})
@@ -253,6 +289,7 @@ jobs:
           fi
           cmake -S . -B build-matterviz-package -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DMULTIWFN_WITH_WORKFLOWS=ON \
             -DCMAKE_BUILD_RPATH="$rpath" \
             -DMULTIWFN_GUI_BACKEND=matterviz \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
@@ -265,6 +302,7 @@ jobs:
           set -euo pipefail
           cmake -S . -B build-matterviz-package -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DMULTIWFN_WITH_WORKFLOWS=ON \
             -DMULTIWFN_GUI_BACKEND=matterviz \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-package --parallel 2
@@ -295,11 +333,24 @@ jobs:
           cp ATTRIBUTION.txt "package/$pkg/ATTRIBUTION.txt"
           cp settings.ini "package/$pkg/settings.ini"
           cp -R frontend/matterviz-viewer/dist "package/$pkg/resources/frontend/matterviz-viewer/"
+          cp -R build-matterviz-package/resources/workflows "package/$pkg/resources/"
+          suffix=''
+          if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
+          cp "build-matterviz-package/resources/tools/multiwfn-workflow$suffix" "package/$pkg/resources/tools/"
+          if [ "$RUNNER_OS" = Linux ]; then
+            cp build-matterviz-package/run-workflows-gui "package/$pkg/"
+            cp build-matterviz-package/resources/tools/matterviz-file-dialog "package/$pkg/resources/tools/"
+          fi
+          cp docs/workflows.md "package/$pkg/README-Workflows.md"
           cat > "package/$pkg/README-MatterViz.txt" <<'EOF'
           MatterViz WebView package
 
           Run Multiwfn_MatterVizGUI (Multiwfn_MatterVizGUI.exe on Windows). GUI entry
           points start the bundled Rust MatterViz host and WebView.
+
+          BaneWfn workflows and scripts are included on all platforms.
+          Linux: run ./run-workflows-gui [startup-file] for a persistent engine.
+          Windows/macOS: workflows currently use the batch backend.
 
           Requirements:
           - Windows: Microsoft Edge WebView2 Runtime
@@ -329,6 +380,8 @@ jobs:
           for binary in \
             build-matterviz-package/Multiwfn_MatterVizGUI \
             frontend/matterviz-desktop/target/release/matterviz-desktop \
+            package/"$PKG"/resources/tools/multiwfn-workflow \
+            package/"$PKG"/resources/tools/matterviz-file-dialog \
             package/"$PKG"/resources/tools/multiwfn-matterviz-updater; do
             [ -e "$binary" ] || continue
             if objdump -T "$binary" | grep -Eq 'GLIBC_(2\.(3[6-9]|[4-9][0-9])|[3-9]\.)'; then
@@ -525,6 +578,8 @@ jobs:
             --binary "package/$PKG/Multiwfn_MatterVizGUI"
             --desktop "package/$PKG/resources/tools/matterviz-desktop"
             --viewer-dist "package/$PKG/resources/frontend/matterviz-viewer/dist"
+            --workflow-runner "package/$PKG/resources/tools/multiwfn-workflow"
+            --workflow-resources "package/$PKG/resources/workflows"
             --settings "package/$PKG/settings.ini"
             --lib-dir "package/$PKG/resources/lib"
             --output-dir "macos-dist"
@@ -591,6 +646,7 @@ jobs:
             changed=0
             for binary in "package/$PKG/Multiwfn_MatterVizGUI.exe" \
               "package/$PKG/resources/tools/matterviz-desktop.exe" \
+              "package/$PKG/resources/tools/multiwfn-workflow.exe" \
               "package/$PKG/resources/tools/multiwfn-matterviz-updater.exe" \
               package/"$PKG"/*.dll package/"$PKG"/resources/tools/*.dll; do
               [ -e "$binary" ] || continue
@@ -691,6 +747,29 @@ jobs:
           if ($hostProcess.ExitCode -ne 0) { throw "Windows Rust host returned $($hostProcess.ExitCode)" }
           if (-not (Test-Path "$session/gui_stop.flag")) { throw "Windows Rust host stop flag missing" }
 
+      - name: Test workflows in extracted package
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            export PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -iv msys64 | paste -sd ':' -)"
+            python tests/test_workflow_package.py "$PWD/clean-test"
+          else
+            python3 tests/test_workflow_package.py "$PWD/clean-test/$PKG"
+          fi
+          if [ "$RUNNER_OS" = macOS ]; then
+            python3 tests/test_workflow_package.py "$PWD/macos-dist/Multiwfn.app/Contents/MacOS"
+          fi
+
+      - name: Test persistent session in extracted Linux package
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        env:
+          MULTIWFN_SESSION_CHECK_DIR: ${{ runner.temp }}/session-live-package
+        run: |
+          export MULTIWFN_SESSION_BUILD_DIR="$PWD/clean-test/$PKG"
+          cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test session_live -- --ignored --nocapture --test-threads=1
+
       - name: Verify package contents
         shell: bash
         run: |
@@ -740,6 +819,18 @@ jobs:
           name: matterviz-package-${{ matrix.platform }}
           path: dist/*
           if-no-files-found: error
+
+      - name: Upload package diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterviz-package-diagnostics-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/session-live-package
+            matterviz-smoke
+            windows-webview-smoke
+            windows-dlls.log
+          if-no-files-found: ignore
 
       - name: Upload macOS DMG installer
         if: runner.os == 'macOS'

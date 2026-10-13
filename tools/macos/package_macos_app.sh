@@ -13,6 +13,8 @@ BINARY=""
 DESKTOP=""
 VIEWER_DIST=""
 UPDATER=""
+WORKFLOW_RUNNER=""
+WORKFLOW_RESOURCES=""
 SETTINGS="$ROOT_DIR/settings.ini"
 OUTPUT_DIR="$ROOT_DIR/build/macos-app"
 LIB_DIR=""
@@ -28,6 +30,8 @@ Options:
   --desktop <path>       Path to matterviz-desktop host binary (required)
   --viewer-dist <path>   Path to frontend/matterviz-viewer/dist directory (required)
   --updater <path>       Path to multiwfn-matterviz-updater binary (optional)
+  --workflow-runner <path>     Optional BaneWfn runner (requires resources)
+  --workflow-resources <path>  BaneWfn conf/scripts directory (requires runner)
   --settings <path>      Path to settings.ini (default: root settings.ini)
   --lib-dir <path>       Path to existing bundled libraries (optional)
   --output-dir <path>    Output directory for Multiwfn.app (default: build/macos-app)
@@ -49,6 +53,10 @@ while [[ $# -gt 0 ]]; do
       VIEWER_DIST="$2"; shift 2 ;;
     --updater)
       UPDATER="$2"; shift 2 ;;
+    --workflow-runner)
+      WORKFLOW_RUNNER="$2"; shift 2 ;;
+    --workflow-resources)
+      WORKFLOW_RESOURCES="$2"; shift 2 ;;
     --settings)
       SETTINGS="$2"; shift 2 ;;
     --lib-dir)
@@ -91,6 +99,12 @@ if [[ -z "$VIEWER_DIST" || ! -d "$VIEWER_DIST" ]]; then
 fi
 
 APP_BUNDLE="$OUTPUT_DIR/Multiwfn.app"
+if [[ -n "$WORKFLOW_RUNNER" || -n "$WORKFLOW_RESOURCES" ]]; then
+  if [[ ! -f "$WORKFLOW_RUNNER" || ! -d "$WORKFLOW_RESOURCES/conf" || ! -d "$WORKFLOW_RESOURCES/scripts" ]]; then
+    echo "Error: workflow runner and conf/scripts resources must be supplied together" >&2
+    exit 1
+  fi
+fi
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
@@ -127,6 +141,11 @@ if [[ -n "$UPDATER" && -f "$UPDATER" ]]; then
 fi
 
 cp -R "$VIEWER_DIST" "$RESOURCES/frontend/matterviz-viewer/dist"
+if [[ -n "$WORKFLOW_RUNNER" ]]; then
+  cp "$WORKFLOW_RUNNER" "$RESOURCES/tools/multiwfn-workflow"
+  chmod +x "$RESOURCES/tools/multiwfn-workflow"
+  cp -R "$WORKFLOW_RESOURCES" "$RESOURCES/workflows"
+fi
 cp "$ROOT_DIR/LICENSE.txt" "$ROOT_DIR/ATTRIBUTION.txt" "$RESOURCES/"
 if [[ -f "$SETTINGS" ]]; then
   cp "$SETTINGS" "$RESOURCES/settings.ini"

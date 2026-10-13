@@ -1,0 +1,1048 @@
+//! BaneWfn workflows with an optional persistent native-session backend.
+use serde_json::{json, Value};
+use std::fs::{self, File};
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const MAX_SCRIPT: u64 = 512 * 1024;
+const MAX_LIBRARY_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_LOG: u64 = 64 * 1024;
+static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone)]
+struct Job {
+    directory: PathBuf,
+    state: &'static str,
+    code: Option<i32>,
+    message: String,
+    cancel: Arc<AtomicBool>,
+}
+
+struct State {
+    library: Option<PathBuf>,
+    results: Option<PathBuf>,
+    results_selected: bool,
+    wavefunction: Option<PathBuf>,
+    job: Option<Job>,
+}
+
+pub struct WorkflowManager {
+    #[cfg(target_os = "linux")]
+    pub session: std::sync::OnceLock<Arc<crate::session_engine::SessionEngine>>,
+    runner: Option<PathBuf>,
+    conf: PathBuf,
+    multiwfn: Option<PathBuf>,
+    state: Arc<Mutex<State>>,
+    worker: Mutex<Option<JoinHandle<()>>>,
+    stopped: AtomicBool,
+}
+
+impl Default for WorkflowManager {
+    fn default() -> Self {
+        Self::new(None, None)
+    }
+}
+
+impl WorkflowManager {
+    pub fn new(multiwfn_pid: Option<u64>, startup_file: Option<&Path>) -> Self {
+        let executable = std::env::current_exe().unwrap_or_default();
+        let tools = executable.parent().unwrap_or(Path::new("."));
+        let resources = tools.parent().unwrap_or(tools);
+        let runner = configured_path("MULTIWFN_WORKFLOW_RUNNER")
+            .filter(|p| p.is_file())
+            .or_else(|| existing_file(tools.join(executable_name("multiwfn-workflow"))));
+        let resource_dir = runner
+            .as_ref()
+            .and_then(|p| p.parent())
+            .unwrap_or(tools)
+            .parent()
+            .unwrap_or(resources)
+            .join("workflows");
+        let library = configured_path("MULTIWFN_WORKFLOW_LIBRARY")
+            .or_else(|| resource_dir.join("scripts").canonicalize().ok());
+        let conf =
+            configured_path("MULTIWFN_WORKFLOW_CONF").unwrap_or_else(|| resource_dir.join("conf"));
+        let manager = Self::with_paths(runner, conf, library, running_multiwfn(multiwfn_pid));
+        if let Some(path) = startup_file {
+            let _ = manager.select("wavefunction", path);
+        }
+        manager
+    }
+
+    fn with_paths(
+        runner: Option<PathBuf>,
+        conf: PathBuf,
+        library: Option<PathBuf>,
+        multiwfn: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            #[cfg(target_os = "linux")]
+            session: std::sync::OnceLock::new(),
+            runner,
+            conf,
+            multiwfn,
+            state: Arc::new(Mutex::new(State {
+                library,
+                results: None,
+                results_selected: false,
+                wavefunction: None,
+                job: None,
+            })),
+            worker: Mutex::new(None),
+            stopped: AtomicBool::new(false),
+        }
+    }
+
+    pub fn select(&self, kind: &str, path: &Path) -> Result<(), String> {
+        let path = path.canonicalize().map_err(|e| e.to_string())?;
+        validate_path(&path)?;
+        let mut state = self.state.lock().map_err(|e| e.to_string())?;
+        if state.job.as_ref().is_some_and(active) {
+            return Err("A workflow is still running".into());
+        }
+        #[cfg(target_os = "linux")]
+        if kind == "wavefunction" {
+            if let Some(owner) = self.session.get() {
+                owner.load_file(&path)?;
+            }
+        }
+        match kind {
+            "library" if path.is_dir() => state.library = Some(path),
+            "results" if path.is_dir() => {
+                state.results = Some(path);
+                state.results_selected = true;
+            }
+            "wavefunction" if path.is_file() => {
+                if !state.results_selected {
+                    let results = default_results(&path)?;
+                    validate_path(&results)?;
+                    state.results = Some(results);
+                }
+                state.wavefunction = Some(path);
+            }
+            _ => return Err("Invalid workflow selection".into()),
+        }
+        Ok(())
+    }
+
+    pub fn status(&self) -> Value {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut scripts = Vec::new();
+        let mut catalog_error = None;
+        if let Some(root) = &state.library {
+            if let Err(error) = scan_scripts(root, root, 0, &mut scripts) {
+                catalog_error = Some(error);
+            }
+        }
+        scripts.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+        let job = state.job.as_ref().map(|job| {
+            let mut log = read_log_tail(&job.directory.join("workflow.log"));
+            if let Some(output) = fs::read_dir(&job.directory)
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().extension().is_some_and(|s| s == "out"))
+                .max_by_key(|entry| entry.metadata().ok().and_then(|m| m.modified().ok()))
+            {
+                log.push_str(&format!(
+                    "\n--- {} ---\n{}",
+                    output.file_name().to_string_lossy(),
+                    read_log_tail(&output.path())
+                ));
+                if log.len() > MAX_LOG as usize {
+                    let mut start = log.len() - MAX_LOG as usize;
+                    while !log.is_char_boundary(start) {
+                        start += 1;
+                    }
+                    log = log[start..].to_owned();
+                }
+            }
+            let files = fs::read_dir(&job.directory)
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().is_file())
+                .take(128)
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            json!({"directory":job.directory, "state":job.state, "exitCode":job.code,
+                "message":job.message, "log":log, "files":files})
+        });
+        #[cfg(target_os = "linux")]
+        let session_info = self
+            .session
+            .get()
+            .map(|s| json!({"pid":s.pid,"revision":s.revision.load(Ordering::Acquire)}));
+        #[cfg(not(target_os = "linux"))]
+        let session_info: Option<Value> = None;
+        json!({"format":"multiwfn-workflows", "version":1, "available":self.runner.is_some(), "session":session_info,
+            "runner":self.runner, "library":state.library, "results":state.results,
+            "wavefunction":state.wavefunction, "multiwfn":self.multiwfn,
+            "scripts":scripts, "catalogError":catalog_error, "job":job})
+    }
+
+    pub fn preview(&self, id: &str) -> Result<Value, String> {
+        let state = self.state.lock().map_err(|e| e.to_string())?;
+        let path = script_path(state.library.as_deref(), id)?;
+        let source = read_script(&path)?;
+        Ok(json!({"id":id, "source":source}))
+    }
+
+    pub fn start(&self, request: &Value) -> Result<(), String> {
+        let mut worker = self.worker.lock().map_err(|e| e.to_string())?;
+        if self.stopped.load(Ordering::Acquire) {
+            return Err("Workflow host is closing".into());
+        }
+        let mut state = self.state.lock().map_err(|e| e.to_string())?;
+        if state.job.as_ref().is_some_and(active) {
+            return Err("A workflow is still running".into());
+        }
+        if let Some(previous) = worker.take() {
+            let _ = previous.join();
+        }
+        let runner = self
+            .runner
+            .as_ref()
+            .ok_or("Workflow runner is not installed")?;
+        let id = request
+            .get("script")
+            .and_then(Value::as_str)
+            .ok_or("Select a workflow script")?;
+        let script = script_path(state.library.as_deref(), id)?;
+        read_script(&script)?;
+        let cores = request
+            .get("cores")
+            .and_then(Value::as_u64)
+            .filter(|n| *n > 0 && *n <= 1024)
+            .ok_or("Cores must be an integer from 1 to 1024")?;
+        let dry_run = request
+            .get("dryRun")
+            .and_then(Value::as_bool)
+            .ok_or("Invalid dry-run flag")?;
+        let variables = request
+            .get("variables")
+            .and_then(Value::as_array)
+            .ok_or("Invalid variables")?;
+        if variables.len() > 64 {
+            return Err("Too many workflow variables".into());
+        }
+        let variables = variables
+            .iter()
+            .map(|v| {
+                let text = v.as_str().ok_or("Invalid workflow variable")?;
+                if text.len() > 4096 || !text.contains('=') || text.contains(['\0', '\r', '\n']) {
+                    return Err("Variables must use key=value, one per line");
+                }
+                Ok(text.to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let results = state.results.as_ref().ok_or("Choose a results folder")?;
+        let source_dir = script.parent().ok_or("Invalid script folder")?;
+        let multiwfn = self
+            .multiwfn
+            .as_ref()
+            .ok_or("The running Multiwfn executable could not be located.")?;
+        fs::create_dir_all(results).map_err(|e| e.to_string())?;
+        let results = results.canonicalize().map_err(|e| e.to_string())?;
+        validate_path(&results)?;
+        if results == source_dir {
+            return Err("The results folder must differ from the script folder".into());
+        }
+        let marker = results.join(".workflow-results.json");
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(marker)
+        {
+            Ok(mut file) => {
+                use std::io::Write;
+                file.write_all(b"{\"format\":\"multiwfn-workflow-results\",\"version\":1}\n")
+                    .map_err(|e| e.to_string())?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis();
+        let sequence = RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = results.join(format!("workflow-{stamp}-{sequence}"));
+        fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        #[cfg(target_os = "linux")]
+        let mut session_bridge = None;
+        #[cfg(target_os = "linux")]
+        let session_pid = self.session.get().map(|owner| owner.pid);
+        #[cfg(not(target_os = "linux"))]
+        let session_pid: Option<u32> = None;
+        let prepared = (|| -> Result<(Child, ProcessTree), String> {
+            let mut budget = CopyBudget::default();
+            copy_inputs(source_dir, &directory, &results, 0, &mut budget)?;
+            let conf = directory.join(".workflow-conf");
+            fs::create_dir(&conf).map_err(|e| e.to_string())?;
+            copy_conf(&self.conf, &conf)?;
+            copy_conf(&directory, &conf)?;
+            copy_conf(&directory.join("conf"), &conf)?;
+            let rc = format!("Multiwfn_exec=\"{}\"\nconfpath=\"{}\"\ncores={cores}\ncitations_output=references.bib\n",
+                multiwfn.display(), conf.display());
+            fs::write(directory.join("banewfn.rc"), rc).map_err(|e| e.to_string())?;
+            if let Some(settings) = multiwfn
+                .parent()
+                .map(|p| p.join("settings.ini"))
+                .filter(|p| p.is_file())
+            {
+                fs::copy(settings, directory.join("settings.ini")).map_err(|e| e.to_string())?;
+            }
+            let log = File::create(directory.join("workflow.log")).map_err(|e| e.to_string())?;
+            let mut command = Command::new(runner);
+            command
+                .arg(script.file_name().ok_or("Invalid script name")?)
+                .arg("--cores")
+                .arg(cores.to_string());
+            if let Some(wfn) = &state.wavefunction {
+                command.arg("--wfn").arg(wfn);
+            }
+            for variable in &variables {
+                command.arg("--var").arg(variable);
+            }
+            if dry_run {
+                command.arg("--dryrun");
+            }
+            command
+                .current_dir(&directory)
+                .stdin(Stdio::null())
+                .stdout(Stdio::from(log.try_clone().map_err(|e| e.to_string())?))
+                .stderr(Stdio::from(log))
+                .env("NO_COLOR", "1");
+            for (key, _) in
+                std::env::vars().filter(|(key, _)| key.starts_with("MULTIWFN_MATTERVIZ_"))
+            {
+                command.env_remove(key);
+            }
+            #[cfg(target_os = "linux")]
+            let session_client = if let Some(owner) = self.session.get() {
+                command.env("BANEWFN_SESSION_MODE", "1");
+                if !dry_run {
+                    let (client, bridge) =
+                        owner.runner(&mut command, directory.clone(), cancel.clone())?;
+                    session_bridge = Some(bridge);
+                    Some(client)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            fs::write(directory.join("workflow-run.json"), serde_json::to_vec_pretty(&json!({
+                "script":script,"runner":runner,"multiwfn":multiwfn,"wavefunction":state.wavefunction,
+                "cores":cores,"variables":variables,"dryRun":dry_run,
+                "sessionPid":session_pid
+            })).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            let child = ProcessTree::spawn(command);
+            #[cfg(target_os = "linux")]
+            drop(session_client);
+            child
+        })();
+        let (mut child, tree) = match prepared {
+            Ok(value) => value,
+            Err(error) => {
+                state.job = Some(Job {
+                    directory,
+                    state: "failed",
+                    code: None,
+                    message: error.clone(),
+                    cancel: Arc::new(AtomicBool::new(false)),
+                });
+                return Err(error);
+            }
+        };
+        state.job = Some(Job {
+            directory: directory.clone(),
+            state: "running",
+            code: None,
+            message: String::new(),
+            cancel: cancel.clone(),
+        });
+        let shared = self.state.clone();
+        #[cfg(target_os = "linux")]
+        let session_owner = self.session.get().cloned();
+        #[cfg(target_os = "linux")]
+        let persistent = session_owner.is_some();
+        #[cfg(not(target_os = "linux"))]
+        let persistent = false;
+        *worker = Some(thread::spawn(move || {
+            let mut outcome = loop {
+                if cancel.load(Ordering::Acquire) && !persistent {
+                    tree.terminate();
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break ("cancelled", None, String::new());
+                }
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        break (
+                            if status.success() {
+                                if dry_run {
+                                    "prepared"
+                                } else {
+                                    "completed"
+                                }
+                            } else {
+                                "failed"
+                            },
+                            status.code(),
+                            String::new(),
+                        )
+                    }
+                    Ok(None) => thread::sleep(Duration::from_millis(50)),
+                    Err(error) => {
+                        tree.terminate();
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break ("failed", None, error.to_string());
+                    }
+                }
+            };
+            #[cfg(target_os = "linux")]
+            if let Some(bridge) = session_bridge {
+                match bridge.join() {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => outcome = ("failed", outcome.1, error),
+                    Err(_) => outcome = ("failed", outcome.1, "Session worker failed".into()),
+                }
+            }
+            if persistent && cancel.load(Ordering::Acquire) {
+                outcome.0 = "cancelled";
+            }
+            // No helper or Multiwfn descendant may outlive the workflow owner.
+            tree.terminate();
+            let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
+            #[cfg(target_os = "linux")]
+            if let Some(owner) = session_owner {
+                let file = owner.file();
+                if !state.results_selected {
+                    state.results = default_results(&file).ok();
+                }
+                state.wavefunction = Some(file);
+            }
+            if let Some(job) = &mut state.job {
+                job.state = outcome.0;
+                job.code = outcome.1;
+                job.message = outcome.2;
+                let _ = fs::write(
+                    directory.join("workflow-status.json"),
+                    serde_json::to_vec_pretty(&json!({
+                        "state":job.state,"exitCode":job.code,"message":job.message
+                    }))
+                    .unwrap_or_default(),
+                );
+            }
+        }));
+        Ok(())
+    }
+
+    pub fn cancel(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(job) = &mut state.job {
+            if active(job) {
+                job.cancel.store(true, Ordering::Release);
+                job.state = "cancelling";
+            }
+        }
+    }
+
+    pub fn shutdown(&self) {
+        // Serialize with launch so closing cannot race with a newly spawned child.
+        let mut worker = self.worker.lock().unwrap_or_else(|e| e.into_inner());
+        self.stopped.store(true, Ordering::Release);
+        self.cancel();
+        if let Some(worker) = worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+impl Drop for WorkflowManager {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+fn active(job: &Job) -> bool {
+    matches!(job.state, "running" | "cancelling")
+}
+fn executable_name(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
+}
+fn existing_file(path: PathBuf) -> Option<PathBuf> {
+    path.canonicalize().ok().filter(|p| p.is_file())
+}
+fn default_results(startup_file: &Path) -> Result<PathBuf, String> {
+    let parent = startup_file.parent().ok_or("Invalid startup file")?;
+    let mut name = startup_file
+        .file_stem()
+        .ok_or("Invalid startup file")?
+        .to_os_string();
+    name.push("_workflows");
+    Ok(parent.join(name))
+}
+
+// The native launcher supplies the current Multiwfn PID. Resolve its actual
+// image once, so neither a different packaged build nor a picker can replace it.
+fn running_multiwfn(pid: Option<u64>) -> Option<PathBuf> {
+    let pid = u32::try_from(pid?).ok().filter(|pid| *pid != 0)?;
+    let path = existing_file(process_image(pid)?)?;
+    validate_path(&path).ok()?;
+    Some(path)
+}
+
+#[cfg(target_os = "linux")]
+fn process_image(pid: u32) -> Option<PathBuf> {
+    fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
+#[cfg(windows)]
+fn process_image(pid: u32) -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+    let mut buffer = vec![0_u16; 32768];
+    let mut size = buffer.len() as u32;
+    let success = unsafe {
+        QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut size)
+    };
+    unsafe { CloseHandle(handle) };
+    (success != 0).then(|| PathBuf::from(OsString::from_wide(&buffer[..size as usize])))
+}
+
+#[cfg(target_os = "macos")]
+fn process_image(pid: u32) -> Option<PathBuf> {
+    use std::ffi::CStr;
+    use std::os::unix::ffi::OsStrExt;
+    #[link(name = "proc")]
+    unsafe extern "C" {
+        fn proc_pidpath(pid: libc::c_int, buffer: *mut libc::c_void, size: u32) -> libc::c_int;
+    }
+    let mut buffer = [0_u8; 4096];
+    let size = unsafe {
+        proc_pidpath(
+            i32::try_from(pid).ok()?,
+            buffer.as_mut_ptr().cast(),
+            buffer.len() as u32,
+        )
+    };
+    if size <= 0 {
+        return None;
+    }
+    let path = CStr::from_bytes_until_nul(&buffer).ok()?;
+    Some(PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes())))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn process_image(_pid: u32) -> Option<PathBuf> {
+    None
+}
+fn configured_path(key: &str) -> Option<PathBuf> {
+    std::env::var_os(key).and_then(|p| PathBuf::from(p).canonicalize().ok())
+}
+fn is_results_dir(path: &Path) -> bool {
+    path.join(".workflow-results.json")
+        .symlink_metadata()
+        .is_ok_and(|metadata| metadata.file_type().is_file())
+}
+fn validate_path(path: &Path) -> Result<(), String> {
+    let value = path.to_str().ok_or("Workflow paths must be UTF-8")?;
+    if value.contains(['\0', '\r', '\n', '"']) {
+        return Err("Workflow paths cannot contain quotes or control characters".into());
+    }
+    #[cfg(windows)]
+    if value.contains(['%', '"']) {
+        return Err("Windows workflow paths cannot contain % or quotes".into());
+    }
+    Ok(())
+}
+fn is_script(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|s| s.to_str()),
+        Some("bw" | "bwc")
+    )
+}
+fn script_path(root: Option<&Path>, id: &str) -> Result<PathBuf, String> {
+    let root = root.ok_or("Choose a script folder")?;
+    let relative = Path::new(id);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err("Invalid workflow script identifier".into());
+    }
+    let path = root
+        .join(relative)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    if !path.starts_with(root) || !path.is_file() || !is_script(&path) {
+        return Err("Invalid workflow script".into());
+    }
+    validate_path(&path)?;
+    Ok(path)
+}
+fn read_script(path: &Path) -> Result<String, String> {
+    if fs::metadata(path).map_err(|e| e.to_string())?.len() > MAX_SCRIPT {
+        return Err("Workflow script exceeds 512 KiB".into());
+    }
+    fs::read_to_string(path).map_err(|e| e.to_string())
+}
+fn scan_scripts(
+    root: &Path,
+    directory: &Path,
+    depth: usize,
+    scripts: &mut Vec<Value>,
+) -> Result<(), String> {
+    if depth > 4 {
+        return Ok(());
+    }
+    for entry in fs::read_dir(directory).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let kind = entry.file_type().map_err(|e| e.to_string())?;
+        if entry.file_name().to_string_lossy().starts_with('.')
+            || kind.is_symlink()
+            || (kind.is_dir() && is_results_dir(&entry.path()))
+            || matches!(
+                entry.file_name().to_str(),
+                Some("build" | "target" | "node_modules")
+            )
+        {
+            continue;
+        }
+        if kind.is_dir() {
+            scan_scripts(root, &entry.path(), depth + 1, scripts)?;
+        } else if kind.is_file() && is_script(&entry.path()) {
+            if scripts.len() >= 256 {
+                return Err("Script catalog exceeds 256 entries".into());
+            }
+            scripts.push(json!({"id":entry.path().strip_prefix(root).map_err(|e| e.to_string())?.to_string_lossy().replace('\\',"/"),
+                "name":entry.file_name().to_string_lossy()}));
+        }
+    }
+    Ok(())
+}
+#[derive(Default)]
+struct CopyBudget {
+    bytes: u64,
+    files: usize,
+}
+fn copy_inputs(
+    source: &Path,
+    target: &Path,
+    results: &Path,
+    depth: usize,
+    budget: &mut CopyBudget,
+) -> Result<(), String> {
+    if depth > 8 {
+        return Err("Script input tree exceeds eight directory levels".into());
+    }
+    for entry in fs::read_dir(source).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name();
+        if entry.path() == results
+            || name.to_string_lossy().starts_with('.')
+            || matches!(name.to_str(), Some("build" | "target" | "node_modules"))
+        {
+            continue;
+        }
+        let kind = entry.file_type().map_err(|e| e.to_string())?;
+        if kind.is_symlink() {
+            return Err("Script input folders must not contain symbolic links".into());
+        }
+        if kind.is_dir() && is_results_dir(&entry.path()) {
+            continue;
+        }
+        let destination = target.join(name);
+        if kind.is_dir() {
+            fs::create_dir(&destination).map_err(|e| e.to_string())?;
+            copy_inputs(&entry.path(), &destination, results, depth + 1, budget)?;
+        } else if kind.is_file() {
+            budget.bytes += entry.metadata().map_err(|e| e.to_string())?.len();
+            budget.files += 1;
+            if budget.bytes > MAX_LIBRARY_BYTES || budget.files > 1024 {
+                return Err("Script companion files exceed 64 MiB or 1024 files; keep wavefunctions outside the script folder".into());
+            }
+            fs::copy(entry.path(), destination).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+fn copy_conf(source: &Path, target: &Path) -> Result<(), String> {
+    if !source.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(source).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if entry.file_type().map_err(|e| e.to_string())?.is_file()
+            && entry.path().extension().is_some_and(|s| s == "conf")
+        {
+            if entry.metadata().map_err(|e| e.to_string())?.len() > MAX_SCRIPT {
+                return Err("Module configuration exceeds 512 KiB".into());
+            }
+            fs::copy(entry.path(), target.join(entry.file_name())).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+fn read_log_tail(path: &Path) -> String {
+    let mut bytes = Vec::new();
+    if let Ok(mut file) = File::open(path) {
+        let length = file.metadata().map(|m| m.len()).unwrap_or_default();
+        let _ = file.seek(SeekFrom::Start(length.saturating_sub(MAX_LOG)));
+        let _ = file.take(MAX_LOG).read_to_end(&mut bytes);
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[cfg(unix)]
+struct ProcessTree(u32);
+#[cfg(unix)]
+impl ProcessTree {
+    fn spawn(mut command: Command) -> Result<(Child, Self), String> {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+        let child = command.spawn().map_err(|e| e.to_string())?;
+        let tree = Self(child.id());
+        Ok((child, tree))
+    }
+    fn terminate(&self) {
+        unsafe {
+            libc::kill(-(self.0 as i32), libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(windows)]
+struct ProcessTree(windows_sys::Win32::Foundation::HANDLE);
+#[cfg(windows)]
+unsafe impl Send for ProcessTree {}
+#[cfg(windows)]
+impl ProcessTree {
+    fn spawn(mut command: Command) -> Result<(Child, Self), String> {
+        use std::os::windows::io::AsRawHandle;
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::JobObjects::*;
+        // Kill-on-close keeps descendant shells and Multiwfn owned by this job.
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let tree = Self(handle);
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if unsafe {
+            SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of_val(&limits) as u32,
+            )
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let mut child = command.spawn().map_err(|e| e.to_string())?;
+        if unsafe { AssignProcessToJobObject(handle, child.as_raw_handle()) } == 0 {
+            let error = std::io::Error::last_os_error().to_string();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+        Ok((child, tree))
+    }
+    fn terminate(&self) {
+        unsafe {
+            windows_sys::Win32::System::JobObjects::TerminateJobObject(self.0, 1);
+        }
+    }
+}
+#[cfg(windows)]
+impl Drop for ProcessTree {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    use std::time::Instant;
+
+    struct Fixture {
+        root: PathBuf,
+        manager: WorkflowManager,
+    }
+    impl Fixture {
+        fn new(runner: &str) -> Self {
+            Self::with_results(runner, true)
+        }
+        fn with_results(runner: &str, select_results: bool) -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "workflow-host-{}-{}",
+                std::process::id(),
+                RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            let library = root.join("scripts");
+            fs::create_dir(&library).unwrap();
+            fs::write(library.join("run.bw"), "%raw\nq\nend\n").unwrap();
+            let results = root.join("results");
+            fs::create_dir(&results).unwrap();
+            let executable = root.join("mock runner");
+            fs::write(&executable, format!("#!/bin/sh\n{runner}\n")).unwrap();
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+            let manager = WorkflowManager::with_paths(
+                Some(executable.clone()),
+                root.join("conf"),
+                Some(library),
+                Some(executable),
+            );
+            if select_results {
+                manager.select("results", &results).unwrap();
+            }
+            Self { root, manager }
+        }
+        fn request(&self) -> Value {
+            json!({"script":"run.bw","cores":1,"variables":[],"dryRun":false})
+        }
+        fn finish(&self) -> Value {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let status = self.manager.status();
+                if !matches!(
+                    status["job"]["state"].as_str(),
+                    Some("running" | "cancelling")
+                ) {
+                    return status;
+                }
+                assert!(Instant::now() < deadline, "workflow did not finish");
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.manager.shutdown();
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn startup_file_derives_results_and_preserves_explicit_directory() {
+        let f = Fixture::with_results("exit 0", false);
+        let first = f.root.join("complex molecule.fchk");
+        let second = f.root.join("另一个体系.xyz");
+        fs::write(&first, "mock input").unwrap();
+        fs::write(&second, "mock input").unwrap();
+        f.manager.select("wavefunction", &first).unwrap();
+        let automatic = f.root.join("complex molecule_workflows");
+        assert_eq!(f.manager.status()["results"], json!(automatic));
+        assert!(
+            !automatic.exists(),
+            "selection must not create output files"
+        );
+        f.manager.select("wavefunction", &second).unwrap();
+        assert_eq!(
+            f.manager.status()["results"],
+            json!(f.root.join("另一个体系_workflows"))
+        );
+        f.manager
+            .select("results", &f.root.join("results"))
+            .unwrap();
+        f.manager.select("wavefunction", &first).unwrap();
+        assert_eq!(f.manager.status()["results"], json!(f.root.join("results")));
+    }
+
+    #[test]
+    fn automatic_results_inside_library_are_not_catalogued_or_copied() {
+        let f = Fixture::with_results("exit 0", false);
+        let library = f.root.join("scripts");
+        let first = library.join("first.fchk");
+        let second = library.join("second.xyz");
+        fs::write(&first, "mock input").unwrap();
+        fs::write(&second, "mock input").unwrap();
+        fs::write(library.join("companion.txt"), "keep this input").unwrap();
+        f.manager.select("wavefunction", &first).unwrap();
+        f.manager.start(&f.request()).unwrap();
+        let first_status = f.finish();
+        assert_eq!(first_status["job"]["state"], "completed");
+        let first_job = PathBuf::from(first_status["job"]["directory"].as_str().unwrap());
+        assert!(!first_job.join("first_workflows").exists());
+        assert_eq!(
+            fs::read_to_string(first_job.join("companion.txt")).unwrap(),
+            "keep this input"
+        );
+        assert_eq!(first_status["scripts"].as_array().unwrap().len(), 1);
+        f.manager.select("wavefunction", &second).unwrap();
+        f.manager.start(&f.request()).unwrap();
+        let second_status = f.finish();
+        assert_eq!(second_status["job"]["state"], "completed");
+        let second_job = PathBuf::from(second_status["job"]["directory"].as_str().unwrap());
+        assert!(!second_job.join("first_workflows").exists());
+        assert!(!second_job.join("second_workflows").exists());
+        assert!(first_job.join("workflow-status.json").is_file());
+        assert_eq!(second_status["scripts"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn engine_is_resolved_from_pid_and_cannot_be_replaced() {
+        assert_eq!(
+            running_multiwfn(Some(u64::from(std::process::id()))),
+            Some(std::env::current_exe().unwrap().canonicalize().unwrap())
+        );
+        assert!(running_multiwfn(None).is_none());
+        assert!(running_multiwfn(Some(u64::MAX)).is_none());
+        let f = Fixture::new("exit 0");
+        let locked = f.manager.status()["multiwfn"].clone();
+        let other = f.root.join("different Multiwfn");
+        fs::write(&other, "must not run").unwrap();
+        assert!(f.manager.select("multiwfn", &other).is_err());
+        let mut request = f.request();
+        request["multiwfn"] = json!(other);
+        f.manager.start(&request).unwrap();
+        let status = f.finish();
+        let directory = PathBuf::from(status["job"]["directory"].as_str().unwrap());
+        let rc = fs::read_to_string(directory.join("banewfn.rc")).unwrap();
+        assert!(rc.contains(locked.as_str().unwrap()));
+        assert!(!rc.contains("different Multiwfn"));
+        assert_eq!(status["multiwfn"], locked);
+    }
+
+    #[test]
+    fn missing_current_engine_fails_without_creating_a_job() {
+        let mut f = Fixture::new("exit 0");
+        f.manager.multiwfn = None;
+        assert!(f
+            .manager
+            .start(&f.request())
+            .unwrap_err()
+            .contains("running Multiwfn"));
+        assert_eq!(fs::read_dir(f.root.join("results")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn catalog_and_preview_reject_paths_outside_native_selection() {
+        let f = Fixture::new("exit 0");
+        fs::write(f.root.join("outside.bw"), "outside").unwrap();
+        symlink(f.root.join("outside.bw"), f.root.join("scripts/escape.bw")).unwrap();
+        assert_eq!(f.manager.status()["scripts"].as_array().unwrap().len(), 1);
+        assert!(f.manager.preview("../outside.bw").is_err());
+        assert!(f.manager.preview("escape.bw").is_err());
+        assert!(f.manager.preview("run.bw").unwrap()["source"]
+            .as_str()
+            .unwrap()
+            .contains("%raw"));
+        let mut invalid = f.request();
+        invalid["cores"] = json!(0);
+        assert!(f.manager.start(&invalid).is_err());
+        assert_eq!(fs::read_dir(f.root.join("results")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn exit_status_logs_and_fresh_directories_survive_repeated_runs() {
+        let f = Fixture::new("echo runner-output\necho engine-output > mock.out\nexit 7");
+        f.manager.start(&f.request()).unwrap();
+        let first = f.finish();
+        assert_eq!(first["job"]["state"], "failed");
+        assert_eq!(first["job"]["exitCode"], 7);
+        assert!(first["job"]["log"]
+            .as_str()
+            .unwrap()
+            .contains("engine-output"));
+        f.manager.start(&f.request()).unwrap();
+        let second = f.finish();
+        assert_ne!(first["job"]["directory"], second["job"]["directory"]);
+        assert!(Path::new(first["job"]["directory"].as_str().unwrap())
+            .join("workflow-status.json")
+            .exists());
+    }
+
+    #[test]
+    fn preflight_has_a_distinct_terminal_state() {
+        let f = Fixture::new("exit 0");
+        let mut request = f.request();
+        request["dryRun"] = json!(true);
+        f.manager.start(&request).unwrap();
+        assert_eq!(f.finish()["job"]["state"], "prepared");
+    }
+
+    #[test]
+    fn cancel_and_shutdown_stop_the_owned_process_tree() {
+        let f = Fixture::new("sleep 60 &\necho $! > descendant.pid\nwait");
+        f.manager.start(&f.request()).unwrap();
+        assert!(f.manager.start(&f.request()).is_err());
+        assert!(f.manager.select("library", &f.root).is_err());
+        let directory = PathBuf::from(f.manager.status()["job"]["directory"].as_str().unwrap());
+        let pid_path = directory.join("descendant.pid");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !pid_path.exists() {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(10));
+        }
+        let pid: i32 = fs::read_to_string(pid_path)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        f.manager.cancel();
+        assert_eq!(f.finish()["job"]["state"], "cancelled");
+        #[cfg(target_os = "linux")]
+        if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
+            assert_eq!(stat.split(") ").nth(1).unwrap().chars().next(), Some('Z'));
+        }
+        f.manager.start(&f.request()).unwrap();
+        f.manager.shutdown();
+        assert_eq!(f.manager.status()["job"]["state"], "cancelled");
+        assert!(f.manager.start(&f.request()).is_err());
+    }
+
+    #[test]
+    fn native_sidecar_runs_the_copied_script_and_generated_rc() {
+        // CI can set this after building the optional C++ target. Other host tests
+        // still exercise process ownership when that optional target is absent.
+        let Some(runner) = std::env::var_os("MULTIWFN_TEST_WORKFLOW_RUNNER") else {
+            return;
+        };
+        let mut f = Fixture::new("cat > received.stdin\necho 'Native analysis result: 42'");
+        f.manager.runner = Some(PathBuf::from(runner));
+        let wfn = f.root.join("input molecule '#.fchk");
+        fs::write(&wfn, "mock").unwrap();
+        f.manager.select("wavefunction", &wfn).unwrap();
+        fs::write(f.root.join("scripts/run.bw"), "%raw\n100\nq\n%grep\nmatch \"Native analysis result\" -> selected.txt\n%command\ncat selected.txt > processed.txt\nend\n").unwrap();
+        f.manager.start(&f.request()).unwrap();
+        let status = f.finish();
+        assert_eq!(status["job"]["state"], "completed", "{status}");
+        let directory = Path::new(status["job"]["directory"].as_str().unwrap());
+        assert_eq!(
+            fs::read_to_string(directory.join("received.stdin")).unwrap(),
+            "100\nq\n"
+        );
+        assert_eq!(
+            fs::read_to_string(directory.join("processed.txt")).unwrap(),
+            "Native analysis result: 42\n"
+        );
+    }
+}

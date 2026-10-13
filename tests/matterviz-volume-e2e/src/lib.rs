@@ -18,6 +18,9 @@ pub mod plot_store;
 pub mod service;
 #[path = "../../../frontend/matterviz-desktop/src/session_data.rs"]
 pub mod session_data;
+#[cfg(target_os = "linux")]
+#[path = "../../../frontend/matterviz-desktop/src/session_engine.rs"]
+pub mod session_engine;
 #[path = "../../../frontend/matterviz-desktop/src/shutdown.rs"]
 pub mod shutdown;
 #[path = "../../../frontend/matterviz-desktop/src/stream_broker.rs"]
@@ -30,6 +33,16 @@ pub mod updater;
 pub mod volume_protocol;
 #[path = "../../../frontend/matterviz-desktop/src/volume_store.rs"]
 pub mod volume_store;
+#[path = "../../../frontend/matterviz-desktop/src/workflows.rs"]
+pub mod workflows;
+
+// Native selection is covered by desktop-host tests; this headless harness
+// exercises the same service and workflow process manager without a WebView.
+pub mod file_dialog {
+    pub fn select_workflow_path(_kind: &str) -> Result<Option<std::path::PathBuf>, String> {
+        Ok(None)
+    }
+}
 
 #[cfg(test)]
 mod tests {

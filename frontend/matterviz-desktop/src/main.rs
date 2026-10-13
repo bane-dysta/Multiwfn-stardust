@@ -11,12 +11,15 @@ pub mod plot_protocol;
 pub mod plot_store;
 mod service;
 mod session_data;
+#[cfg(target_os = "linux")]
+mod session_engine;
 mod shutdown;
 mod stream_broker;
 mod transport;
 mod updater;
 pub mod volume_protocol;
 pub mod volume_store;
+mod workflows;
 
 use std::env;
 use std::path::Path;
@@ -34,6 +37,10 @@ use lifecycle::StartupStatus;
 use service::HttpService;
 
 fn main() -> ExitCode {
+    #[cfg(target_os = "linux")]
+    if env::args().nth(1).as_deref() == Some("--launch") {
+        return launch_session();
+    }
     let cli = match Cli::parse(env::args().skip(1)) {
         Ok(value) => value,
         Err(error) => {
@@ -94,6 +101,48 @@ fn main() -> ExitCode {
                     ExitCode::from(2)
                 }
             }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn launch_session() -> ExitCode {
+    let launch = || -> Result<(Arc<HttpService>, Arc<session_engine::SessionEngine>), String> {
+        let executable = env::current_exe().map_err(|e| e.to_string())?;
+        let resources = executable
+            .parent()
+            .and_then(Path::parent)
+            .ok_or("Invalid desktop installation")?;
+        let root = resources.parent().ok_or("Missing Multiwfn installation")?;
+        let input = match env::args_os().nth(2) {
+            Some(path) => std::path::PathBuf::from(path),
+            None => file_dialog::select_file(Path::new(""))
+                .map_err(|e| e.to_string())?
+                .ok_or("No startup file selected")?,
+        };
+        let (owner, config, control) = session_engine::SessionEngine::launch(
+            &root.join("Multiwfn_MatterVizGUI"),
+            &input,
+            resources.join("frontend/matterviz-viewer/dist"),
+        )?;
+        let service = Arc::new(HttpService::start_with_control(config, Some(control))?);
+        service.attach_session(owner.clone())?;
+        eprintln!(
+            "Multiwfn session PID: {}\nMultiwfn MatterViz GUI service: {}",
+            owner.pid,
+            service.url()
+        );
+        Ok((service, owner))
+    };
+    match launch() {
+        Ok((service, _owner)) => run_tauri(
+            format!("{}&ownedSession=1", service.url()),
+            Some(service),
+            Duration::from_secs(120),
+        ),
+        Err(error) => {
+            eprintln!("Multiwfn session: {error}");
+            ExitCode::from(2)
         }
     }
 }

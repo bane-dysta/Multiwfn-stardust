@@ -1,0 +1,31 @@
+cmake_minimum_required(VERSION 3.20)
+project(MultiwfnWorkflows LANGUAGES CXX)
+
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/banewfn/VERSION" BANEWFN_VERSION)
+string(STRIP "${BANEWFN_VERSION}" BANEWFN_VERSION)
+set(BANEWFN_SOURCES
+  common/citation.cpp common/config.cpp common/grep_dsl.cpp
+  common/inline_conf.cpp common/input.cpp common/ui.cpp common/utils.cpp
+  banewfn/application.cpp banewfn/grep_engine.cpp banewfn/promolecule.cpp
+)
+list(TRANSFORM BANEWFN_SOURCES PREPEND "banewfn/src/")
+add_executable(multiwfn-workflow main.cpp ${BANEWFN_SOURCES})
+target_include_directories(multiwfn-workflow PRIVATE banewfn/src)
+target_compile_features(multiwfn-workflow PRIVATE cxx_std_17)
+set_target_properties(multiwfn-workflow PROPERTIES CXX_EXTENSIONS OFF)
+target_compile_definitions(multiwfn-workflow PRIVATE BANEWFN_VERSION="${BANEWFN_VERSION}")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
+  target_link_libraries(multiwfn-workflow PRIVATE stdc++fs)
+endif()
+if(MSVC)
+  target_compile_options(multiwfn-workflow PRIVATE /W4 /utf-8)
+else()
+  target_compile_options(multiwfn-workflow PRIVATE -Wall -Wextra)
+endif()
+option(MULTIWFN_WORKFLOW_STATIC "Link the workflow runner with static runtimes" OFF)
+if(MULTIWFN_WORKFLOW_STATIC AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  target_link_options(multiwfn-workflow PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+install(TARGETS multiwfn-workflow RUNTIME DESTINATION bin/resources/tools COMPONENT workflows)
+install(DIRECTORY banewfn/conf scripts DESTINATION bin/resources/workflows COMPONENT workflows)
+install(FILES banewfn/LICENSE NOTICE.md DESTINATION bin/resources/workflows COMPONENT workflows)

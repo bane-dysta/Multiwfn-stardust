@@ -11,6 +11,7 @@ include(CheckFortranCompilerFlag)
 option(MULTIWFN_BUILD_GUI "Build the DISLIN/Motif GUI executable" OFF)
 option(MULTIWFN_WITH_OPENMP "Enable OpenMP when the compiler supports it" ON)
 option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF)
+option(MULTIWFN_WITH_WORKFLOWS "Build the optional BaneWfn workflow runner (C++17)" OFF)
 option(MULTIWFN_WINDOWS_STATIC_LINK "Prefer static runtime and math libraries for Windows redistribution" ON)
 set(MULTIWFN_GUI_BACKEND "dislin" CACHE STRING "GUI backend used by the CMake build: dislin, legacy 3dmol, or matterviz")
 set_property(CACHE MULTIWFN_GUI_BACKEND PROPERTY STRINGS dislin 3dmol matterviz)
@@ -172,6 +173,8 @@ if(MULTIWFN_GUI_BACKEND MATCHES "^(3dmol|matterviz)$")
   list(APPEND MULTIWFN_CORE_SOURCES
     noGUI/plot_external_empty.f90
     noGUI/matterviz_spawn.c
+    noGUI/matterviz_session.c
+    noGUI/matterviz_session.f90
   )
 endif()
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
@@ -221,6 +224,19 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
   include(cmake/MatterVizMappedSurfaces.cmake)
 endif()
 
+if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  set(_session_entry "${CMAKE_CURRENT_BINARY_DIR}/generated/session/Multiwfn.f90")
+  execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_session_entry.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Multiwfn.f90" "${_session_entry}"
+    COMMAND_ERROR_IS_FATAL ANY)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS Multiwfn.f90 tools/generate_session_entry.py)
+  list(REMOVE_ITEM MULTIWFN_CORE_SOURCES Multiwfn.f90)
+  list(APPEND MULTIWFN_CORE_SOURCES "${_session_entry}")
+  configure_file(tools/run-workflows-gui "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui" COPYONLY)
+  file(CHMOD "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui"
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+endif()
 add_executable(${MULTIWFN_EXECUTABLE_NAME} ${MULTIWFN_CORE_SOURCES})
 
 if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
@@ -377,3 +393,49 @@ endif()
 
 install(TARGETS ${MULTIWFN_EXECUTABLE_NAME} RUNTIME DESTINATION bin)
 install(FILES settings.ini DESTINATION etc/multiwfn)
+
+if(MULTIWFN_WITH_WORKFLOWS)
+  enable_language(CXX)
+  add_subdirectory(frontend/workflows)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+      pkg_check_modules(GTK_DIALOG QUIET IMPORTED_TARGET gtk+-3.0)
+      if(GTK_DIALOG_FOUND)
+        add_executable(matterviz-file-dialog noGUI/matterviz_file_dialog.c)
+        target_link_libraries(matterviz-file-dialog PRIVATE PkgConfig::GTK_DIALOG)
+        install(TARGETS matterviz-file-dialog RUNTIME DESTINATION bin/resources/tools COMPONENT workflows)
+      endif()
+    endif()
+  endif()
+  add_custom_target(multiwfn_workflow_resources ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/resources/tools"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "$<TARGET_FILE:multiwfn-workflow>" "${CMAKE_CURRENT_BINARY_DIR}/resources/tools"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/frontend/workflows/banewfn/conf"
+      "${CMAKE_CURRENT_BINARY_DIR}/resources/workflows/conf"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/frontend/workflows/scripts"
+      "${CMAKE_CURRENT_BINARY_DIR}/resources/workflows/scripts"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/frontend/workflows/banewfn/LICENSE"
+      "${CMAKE_CURRENT_SOURCE_DIR}/frontend/workflows/NOTICE.md"
+      "${CMAKE_CURRENT_BINARY_DIR}/resources/workflows"
+    DEPENDS multiwfn-workflow
+    COMMENT "Staging optional BaneWfn workflow resources"
+    VERBATIM
+  )
+  if(TARGET multiwfn_matterviz_resources)
+    add_dependencies(multiwfn_workflow_resources multiwfn_matterviz_resources)
+  elseif(TARGET multiwfn_3dmol_resources)
+    add_dependencies(multiwfn_workflow_resources multiwfn_3dmol_resources)
+  endif()
+  if(TARGET matterviz-file-dialog)
+    add_custom_target(multiwfn_dialog_resources ALL
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:matterviz-file-dialog>"
+        "${CMAKE_CURRENT_BINARY_DIR}/resources/tools/matterviz-file-dialog"
+      DEPENDS matterviz-file-dialog multiwfn_workflow_resources
+      VERBATIM)
+  endif()
+endif()

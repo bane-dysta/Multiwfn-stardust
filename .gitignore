@@ -43,6 +43,7 @@ dist/
 
 # Rust build output
 target/
+frontend/matterviz-desktop/gen/
 
 # Generated GUI session data
 multiwfn_3dmol_session/

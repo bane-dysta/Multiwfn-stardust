@@ -1,5 +1,6 @@
 module GUI
 use defvar
+use matterviz_session
 use iso_c_binding, only: c_char,c_int,c_int32_t,c_int64_t,c_intptr_t,c_double,c_null_char
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
 use matterviz_plot_capture
@@ -351,6 +352,7 @@ call emit_matterviz_json(sink,'  "kind": "session_init",')
 call emit_matterviz_json(sink,'  "manifest": {')
 call emit_matterviz_json(sink,'    "format": "multiwfn-matterviz-workbench",')
 call emit_matterviz_json(sink,'    "version": 2,')
+call emit_matterviz_json(sink,'    "startupFile": "'//matterviz_json_escape(trim(filename))//'",')
 call emit_matterviz_json(sink,'    "structure": null,')
 if (len_trim(export_format)>0) then
     write(line,"(a,i0,a,i0,a)") '    "plotExport": { "format": "'// &
@@ -424,6 +426,10 @@ logical :: session_ok
 integer(c_int) :: c_status
 
 status=-1
+if (session_enabled.and.mwfn_session_active()/=0) then
+    call multiwfn_matterviz_control_buffer_destroy(sink%buffer)
+    return
+end if
 call emit_matterviz_json(sink,'    ]')
 call emit_matterviz_json(sink,'    }')
 call emit_matterviz_json(sink,'  },')
@@ -946,6 +952,7 @@ integer :: launch_status,iu,bootstrap_status
 integer :: transport_error
 logical :: session_ok,diagnostic_cube_fallback,memory_session
 
+if (session_enabled.and.mwfn_session_active()/=0) return
 call reset_generated_orbitals()
 call reset_bond_analysis_cache()
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
@@ -1086,11 +1093,13 @@ integer(c_int32_t) :: message_type
 integer(c_int64_t) :: request_id,body_bytes
 integer(c_int) :: c_status
 integer :: istat,iorb,quality,iatm1,iatm2
+logical :: workflow_yield
 real*8 :: isoval
 type(matterviz_json_sink) :: sink
 character(len=1024) :: line
 
 do
+    workflow_yield=.false.
     c_status=multiwfn_matterviz_control_receive(gui_request_read,message_type,request_id, &
         c_body,int(size(c_body),c_int64_t),body_bytes,250_c_int32_t)
     if (c_status==-1003_c_int) cycle
@@ -1112,7 +1121,10 @@ do
     call emit_matterviz_json(sink,line)
     call emit_matterviz_json(sink,'  "result":')
     read(command,*,iostat=istat) action
-    if (istat==0.and.trim(action)=="orbital") then
+    if (istat==0.and.trim(command)=="workflow yield".and.session_enabled) then
+        call emit_matterviz_json(sink,'{"ok":true}')
+        workflow_yield=.true.
+    else if (istat==0.and.trim(action)=="orbital") then
         read(command,*,iostat=istat) action,iorb,quality,isoval
         if (istat==0) then
             call handle_orbital_request(session,sink,int(request_id,8),iorb,quality,isoval)
@@ -1157,6 +1169,7 @@ do
     end if
 #endif
     if (c_status/=0_c_int) exit
+    if (workflow_yield) return
 end do
 call close_matterviz_transport()
 end subroutine
@@ -2229,6 +2242,7 @@ c_value(length+1)=c_null_char
 end subroutine
 
 subroutine close_matterviz_transport()
+if (session_enabled) return
 call multiwfn_matterviz_transport_close(gui_volume_write,gui_ack_read)
 call multiwfn_matterviz_control_close(gui_request_read,gui_response_write)
 end subroutine
@@ -2706,6 +2720,7 @@ call emit_matterviz_json(sink,"{")
 call emit_matterviz_json(sink,'  "format": "multiwfn-matterviz-workbench",')
 call emit_matterviz_json(sink,'  "version": 2,')
 call emit_matterviz_json(sink,'  "generatedBy": "Multiwfn_MatterViz",')
+call emit_matterviz_json(sink,'  "startupFile": "'//matterviz_json_escape(trim(filename))//'",')
 call emit_matterviz_json(sink,'  "multiwfnGui": {')
 write(line,"(a,a,a)") '    "entry": "',trim(entry),'",'
 call emit_matterviz_json(sink,line)

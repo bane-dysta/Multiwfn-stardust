@@ -1745,6 +1745,32 @@ int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_u
                              intptr_t *request_read_out, intptr_t *response_write_out,
                              int *transport_error_out) {
     int transport_error = 0;
+#if defined(__linux__)
+    /* A managed desktop owns the engine and supplies the GUI channels once. */
+    const char *inherited = getenv("MULTIWFN_SESSION_GUI_FDS");
+    if (inherited != NULL) {
+        static int attached = 0;
+        int volume, ack, request, response;
+        char trailing;
+        if (sscanf(inherited,"%d,%d,%d,%d%c",&volume,&ack,&request,&response,&trailing)!=4 ||
+            volume<3 || ack<3 || request<3 || response<3) return -1;
+        *volume_write_out=volume; *ack_read_out=ack;
+        *request_read_out=request; *response_write_out=response;
+        *transport_error_out=0;
+        if (fcntl(volume,F_SETFD,FD_CLOEXEC)<0 || fcntl(ack,F_SETFD,FD_CLOEXEC)<0 ||
+            fcntl(request,F_SETFD,FD_CLOEXEC)<0 || fcntl(response,F_SETFD,FD_CLOEXEC)<0) return -1;
+        if (!attached) {
+            uint8_t ready[MWFN_READY_BYTES], hello[MWFN_CONTROL_HEADER_BYTES];
+            int error=mwfn_read_exact_posix(ack,ready,sizeof(ready),MWFN_READY_TIMEOUT_MS);
+            if (!error && !mwfn_valid_ready(ready)) error=EINVAL;
+            if (!error) error=mwfn_read_exact_posix(request,hello,sizeof(hello),MWFN_READY_TIMEOUT_MS);
+            if (!error && (!mwfn_control_header_valid(hello) || mwfn_get_u16(hello+12)!=1U)) error=EINVAL;
+            if (error) { *transport_error_out=error; return -1; }
+            attached=1;
+        }
+        return 0;
+    }
+#endif
     if (volume_write_out != NULL) *volume_write_out = (intptr_t)-1;
     if (ack_read_out != NULL) *ack_read_out = (intptr_t)-1;
     if (request_read_out != NULL) *request_read_out = (intptr_t)-1;
