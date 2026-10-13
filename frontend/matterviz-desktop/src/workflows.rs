@@ -806,6 +806,9 @@ mod tests {
                 RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir(&root).unwrap();
+            // macOS temp_dir() uses /var, which resolves to /private/var.
+            // Match the canonical paths supplied by production native selection.
+            let root = root.canonicalize().unwrap();
             let library = root.join("scripts");
             fs::create_dir(&library).unwrap();
             fs::write(library.join("run.bw"), "%raw\nq\nend\n").unwrap();

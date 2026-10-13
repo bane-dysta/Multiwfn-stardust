@@ -16,10 +16,19 @@ workflow test passed against `build/`; real persistent-session test passed
 Rust formatting, workflow YAML parsing, and syntax of all 34 shell steps passed.
 No scientific core files changed and no electronic-structure calculation ran.
 
-Remote validation is pending GitHub device login. The user explicitly authorized
-reuse of Windows Git Credential Manager and an independent CI branch on
-`bane-dysta/Multiwfn-stardust`; the credential manager had no saved account.
-No remote pass result is claimed until the actual Actions jobs finish.
+Remote validation is running on fork branch `ci/banewfn-session-20261013`,
+initial commit `d419a5b9ffe9fadf7af196fabaec36c8d5a88b8f`, Actions run
+https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38356482459.
+The initial macOS desktop test found a fixture-only path mismatch: macOS
+`temp_dir()` starts with `/var` whereas canonical paths start with `/private/var`.
+The fixture now canonicalizes its root like the production file picker does.
+All 9 focused workflow tests pass locally with a symlinked temporary directory.
+Both Linux jobs passed, including the extracted package's live session (1.93 s,
+PID 30665). Windows reached C++ compilation but GCC 16's newer default dialect
+made the vendored runner's `u8` literals incompatible with `std::string`.
+The runner now explicitly selects its required C++17 dialect rather than merely
+requesting C++17 as a minimum feature level. Scientific sources are unchanged.
+The corrected three-platform rerun is pending.
 
 ## Current delivery: persistent Linux session — 2026-10-13
 
