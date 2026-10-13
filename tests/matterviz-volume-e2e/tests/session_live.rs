@@ -83,6 +83,12 @@ fn persistent_process_preserves_memory_and_gui_transport() {
     let library = base.join("scripts");
     fs::create_dir(&library).unwrap();
     fs::write(library.join("set.bw"), "%raw\n1000\n5\n0.125\nend\n").unwrap();
+    fs::write(library.join("crlf.bw"), "%raw\r\n1000\r\n0\r\nend\r\n").unwrap();
+    fs::write(
+        library.join("large.bw"),
+        format!("%raw\n{}1000\n0\nend\n", "\n".repeat(96 * 1024)),
+    )
+    .unwrap();
     fs::write(library.join("read.bw"),"%raw\n1000\n0\nxyz\nretained.xyz\n%grep\nmatch \"1.25000000E-01\" -> retained-state.txt\nend\n").unwrap();
     fs::write(
         library.join("bad-exit.bw"),
@@ -149,6 +155,11 @@ fn persistent_process_preserves_memory_and_gui_transport() {
     let third = run(service.url(), "read.bw");
     assert_eq!(third["job"]["state"], "completed", "{third}");
     assert_eq!(third["session"]["pid"], owner.pid);
+    for name in ["crlf.bw", "large.bw"] {
+        let checked = run(service.url(), name);
+        assert_eq!(checked["job"]["state"], "completed", "{name}: {checked}");
+        assert_eq!(checked["session"]["pid"], owner.pid);
+    }
     let module = run(service.url(), "module.bwc");
     assert_eq!(module["job"]["state"], "completed", "{module}");
     let started = api(
@@ -180,6 +191,13 @@ fn persistent_process_preserves_memory_and_gui_transport() {
     .unwrap()
     .contains("Ar"));
     assert_eq!(reloaded["session"]["pid"], owner.pid);
+    // Exercise native reload and output staging with a UTF-8 startup filename.
+    let unicode_input = base.join("启动 文件.xyz");
+    fs::write(&unicode_input, "1\nUnicode path\nAr 0.0 0.0 0.0\n").unwrap();
+    owner.load_file(&unicode_input).unwrap();
+    let unicode_run = run(service.url(), "reload.bw");
+    assert_eq!(unicode_run["job"]["state"], "completed", "{unicode_run}");
+    assert_eq!(unicode_run["session"]["pid"], owner.pid);
     let grid_loaded = run(service.url(), "load-grid.bw");
     assert_eq!(grid_loaded["job"]["state"], "completed", "{grid_loaded}");
     let loaded_path = PathBuf::from(grid_loaded["wavefunction"].as_str().unwrap());
@@ -203,6 +221,7 @@ fn persistent_process_preserves_memory_and_gui_transport() {
     assert_eq!(grid_read["session"]["pid"], owner.pid);
     fs::write(base.join("session-validation.json"),serde_json::to_vec_pretty(&json!({"pid":owner.pid,"first":first,"second":second,"rejectedExit":rejected,"continued":third,"inlineModule":module,"cancelled":cancelled,"reloaded":reloaded,"gridLoaded":grid_loaded,"gridRead":grid_read,"retainedGridValues":values})).unwrap()).unwrap();
     service.signal_return().unwrap();
+    assert_eq!(service.termination_exit_code(), 0);
     service.shutdown();
     service.join();
     assert!(owner.exited().unwrap());

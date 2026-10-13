@@ -486,6 +486,17 @@ impl HttpService {
         self.shutdown.is_requested()
     }
     pub fn termination_exit_code(&self) -> i32 {
+        if self.workflows.session.get().is_some() {
+            return if *self
+                .return_signaled
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+            {
+                0
+            } else {
+                2
+            };
+        }
         if self.in_memory_session
             && (!*self
                 .return_signaled
@@ -505,7 +516,14 @@ impl HttpService {
         self.workflows.shutdown();
         #[cfg(any(unix, windows))]
         if let Some(owner) = self.workflows.session.get() {
-            return owner.close();
+            let result = owner.close();
+            if result.is_ok() {
+                *self
+                    .return_signaled
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = true;
+            }
+            return result;
         }
         let result = signal_return(
             self.in_memory_session,

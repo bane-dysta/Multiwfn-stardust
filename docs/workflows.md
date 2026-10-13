@@ -11,7 +11,7 @@ full path available on hover. Narrow windows place the script list above the tab
 and variable overrides.
 The optional C++ runner reuses BaneWfn's parser, module expansion, raw input,
 variables and arrays, builtins, text extraction, postprocessing, collection and
-citations. On Linux, **`run-workflows-gui` starts one Multiwfn process** and keeps
+citations. **The desktop workflow entry starts one Multiwfn process** and keeps
 that same process for GUI operations and subsequent workflow blocks. Its PID is
 shown in the panel. Loaded data and modified scientific state remain in memory;
 ordinary blocks do not reload the startup file. Selecting a different startup
@@ -21,7 +21,16 @@ Result files and logs remain in each job directory.
 
 The existing engine-first GUI launch remains available with its previous batch
 backend. Use the new launcher for persistent sessions; it does not attach to an
-arbitrary terminal process. The persistent backend currently targets Linux/WSL.
+arbitrary terminal process. Persistent sessions support Linux/WSL, Windows and
+macOS. Use `run-workflows-gui` on Linux, `Multiwfn.exe` on Windows, or open
+`Multiwfn.app` on macOS. The macOS tar package supports
+`resources/tools/matterviz-desktop --launch [startup-file]`. Omit the startup
+file to choose it in a native dialog. A failed persistent launch reports an error;
+it does not silently switch to the batch backend.
+
+Engine startup logs are under the user's temporary directory in
+`multiwfn-session-logs`. The adapter uses private pipes and Fortran scratch input
+streams, so it does not need to write into the installation or application bundle.
 
 ## Build and install
 
@@ -60,7 +69,7 @@ The frontend must be rebuilt and the existing Rust host must be rebuilt as
 described in `docs/build.md`. The workflow feature introduces no Python, Qt,
 JavaScript server or additional Rust package at runtime. The optional runner uses
 the C++ standard library. Python3 is additionally needed at configure time for
-the Linux session entry generator, not at runtime. Existing native file dialogs
+the session entry generator on all three platforms, not at runtime. Existing native file dialogs
 select local paths.
 
 The default staging layout is:
@@ -95,10 +104,10 @@ cmake --install build/workflow-runner --component workflows --prefix /chosen/pre
 ```
 
 This installs into `bin/resources/tools` and `bin/resources/workflows`. Keep the
-runner and workflow resources together when relocating them. Package templates
-that copy only the existing desktop executable, including the current macOS app
-packager, must explicitly include these optional resources; their release assets
-are not silently changed by this feature.
+runner and workflow resources together when relocating them. The Actions packages
+include these resources, and the macOS app packager stages them when supplied
+its workflow options. Ordinary builds without workflows retain their existing
+engine-first launch behavior.
 
 For source-tree development, the host supports explicit absolute paths through
 `MULTIWFN_WORKFLOW_RUNNER`, `MULTIWFN_WORKFLOW_LIBRARY`,
@@ -182,13 +191,13 @@ Related discussion: [BaneWfn stdin control, issue #58](https://github.com/Stardu
 and [native host architecture, PR #26](https://github.com/Stardust0831/Multiwfn/pull/26).
 The contribution is limited to frontend, host orchestration, optional build
 integration, tests and documentation. Root Fortran, `ext/` and `libreta_hybrid/`
-stay unchanged. The optional Linux build generates a copy of `Multiwfn.f90`
+stay unchanged. The optional workflow build generates a copy of `Multiwfn.f90`
 with two entry/input substitutions; unique-anchor checks fail configuration if
-upstream changes those locations. The adapter schedules complete stdin blocks
+upstream changes those locations. The adapter schedules complete menu-input blocks
 and redirects existing output, without replacing scientific routines.
 
 Suggested issue/PR title: **Run BaneWfn workflows in an owned Multiwfn GUI session**.
-The review description should explain the inherited control channel, generated
+The review description should explain the private control channel, generated
 entry, retained memory, explicit reload and block-boundary cancellation, optional
 dependencies, retained licenses and validation results in `EDIT_STATUS.md`.
 No GitHub issue or PR has been posted by this implementation task.

@@ -203,3 +203,36 @@ impl Endpoints {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_pipe_delivers_large_fragmented_payload_and_eof() {
+        let (mut channel, endpoints) = Channel::pair().unwrap();
+        let expected = vec![0x53; 256 * 1024];
+        let bytes = expected.clone();
+        let writer = std::thread::spawn(move || {
+            let mut endpoint = &endpoints.0[1];
+            for part in bytes.chunks(777) {
+                endpoint.write_all(part).unwrap();
+            }
+        });
+        let mut actual = vec![0; expected.len()];
+        channel.read_exact(&mut actual).unwrap();
+        assert_eq!(actual, expected);
+        writer.join().unwrap();
+        assert_eq!(channel.read(&mut [0]).unwrap(), 0);
+    }
+
+    #[test]
+    fn startup_timeout_is_bounded() {
+        let (mut channel, _endpoints) = Channel::pair().unwrap();
+        channel.set_read_timeout(Some(Duration::from_millis(20)));
+        assert_eq!(
+            channel.read(&mut [0]).unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+    }
+}

@@ -346,12 +346,14 @@ jobs:
           cat > "package/$pkg/README-MatterViz.txt" <<'EOF'
           MatterViz WebView package
 
-          Run Multiwfn_MatterVizGUI (Multiwfn_MatterVizGUI.exe on Windows). GUI entry
-          points start the bundled Rust MatterViz host and WebView.
+          Windows: double-click Multiwfn.exe. macOS: open Multiwfn.app.
+          These desktop entries own one persistent Multiwfn engine.
+          Multiwfn_MatterVizGUI remains available for command-line use.
 
           BaneWfn workflows and scripts are included on all platforms.
           Linux: run ./run-workflows-gui [startup-file] for a persistent engine.
-          Windows/macOS: workflows currently use the batch backend.
+          macOS tar package: resources/tools/matterviz-desktop --launch [startup-file].
+          All three desktop workflow entries retain the same engine across scripts.
 
           Requirements:
           - Windows: Microsoft Edge WebView2 Runtime

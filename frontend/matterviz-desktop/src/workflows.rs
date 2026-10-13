@@ -1019,7 +1019,7 @@ mod tests {
             .unwrap();
         f.manager.cancel();
         assert_eq!(f.finish()["job"]["state"], "cancelled");
-        #[cfg(any(unix, windows))]
+        #[cfg(target_os = "linux")]
         if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
             assert_eq!(stat.split(") ").nth(1).unwrap().chars().next(), Some('Z'));
         }

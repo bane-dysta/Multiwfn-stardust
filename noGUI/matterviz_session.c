@@ -1,8 +1,8 @@
 /* Managed-session input scheduling. Scientific menus remain in Fortran.
- * Private inherited socket protocol, version 1, little endian:
- * event: kind ('R' ready, 'D' done, 'E' rejected), consumed:u64, filename:string
- * command: 'G' enter GUI, 'Q' close, 'B' end:u64 cores:u32 cwd:string log:string
- * Strings are u32 byte count + UTF-8. No listening socket or runtime files. */
+ * Private pipe protocol, version MWS2, little endian:
+ * event: kind ('R' ready, 'D' done, 'E' rejected), block id:u64, filename:string
+ * command: 'G' enter GUI, 'Q' close, 'B' id:u64 cores:u32 cwd/log/commands:string
+ * Strings are u32 byte count + UTF-8. Fortran owns its scratch input stream. */
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>

@@ -1,5 +1,32 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Portable persistent sessions — 2026-10-13 (in progress)
+
+Windows and macOS now use the desktop-owned session implementation alongside
+Linux. The generated entry still has exactly two adapter substitutions; original
+scientific sources are not edited. Protocol MWS2 carries complete command blocks
+and acknowledges block IDs. Fortran supplies its own scratch input stream and
+measures its boundary using runtime positions, removing the /proc dependency
+and wire-byte/newline assumptions. Windows private pipe handles are explicitly
+duplicated into the intended child and delivered through bootstrap stdin; they
+are not made globally inheritable. Unix endpoints use close-on-exec discipline.
+
+Windows packages add the desktop entry `Multiwfn.exe`. Workflow-enabled macOS
+apps use desktop-first launch, preserving the CLI engine and workflow-disabled
+app behavior. macOS app resources and executable paths are resolved separately.
+Engine startup logs now live under the user's temporary directory. Owned engine
+destruction also reaps a child after startup/service failure.
+
+Local validation so far: Fortran input probe, full native GUI build, 142 native
+tests, 42 build/entry/app contracts, Rust clippy, Windows GNU Rust test-target
+cross-check, and Windows C adapter/launcher compilation passed. Real Linux live
+test passed with retained state, rejected exit recovery, cancellation, reload,
+GUI/grid refresh, CRLF recipes and a 96 KiB command block (PID 2492477, 2.20 s).
+These are input and data-I/O checks, not electronic-structure calculations.
+Current three-platform CI: run 38365459075, candidate 30fd88e9; pending.
+Local executable: `build/run-workflows-gui [startup-file]`.
+WIP snapshots: `artifacts/2026-10-13/wip/multiwfn-session2/`.
+
 ## Cross-platform Actions validation — 2026-10-13
 
 Release designation: `workflows-session1-ci1`. Final Actions run
