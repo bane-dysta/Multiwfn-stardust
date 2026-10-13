@@ -22,6 +22,8 @@ on:
       - noGUI/matterviz_file_dialog.c
       - tools/generate_session_entry.py
       - tools/run-workflows-gui
+      - tools/linux/**
+      - tests/test_linux_desktop_entry.py
       - tests/test_session_entry.py
       - tests/test_workflow_package.py
       - frontend/matterviz-desktop/**
@@ -339,7 +341,9 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
           cp "build-matterviz-package/resources/tools/multiwfn-workflow$suffix" "package/$pkg/resources/tools/"
           if [ "$RUNNER_OS" = Linux ]; then
-            cp build-matterviz-package/run-workflows-gui "package/$pkg/"
+            cp build-matterviz-package/Multiwfn build-matterviz-package/run-workflows-gui \
+              build-matterviz-package/install-desktop-entry.sh "package/$pkg/"
+            cp build-matterviz-package/resources/multiwfn.png "package/$pkg/resources/"
             cp build-matterviz-package/resources/tools/matterviz-file-dialog "package/$pkg/resources/tools/"
           fi
           cp docs/workflows.md "package/$pkg/README-Workflows.md"
@@ -351,7 +355,9 @@ jobs:
           Multiwfn_MatterVizGUI remains available for command-line use.
 
           BaneWfn workflows and scripts are included on all platforms.
-          Linux: run ./run-workflows-gui [startup-file] for a persistent engine.
+          Linux: open Multiwfn, or run ./install-desktop-entry.sh once to add
+          Multiwfn to your application menu. Run the installer again after moving
+          the package. ./Multiwfn [startup-file] also works from a terminal.
           macOS tar package: resources/tools/matterviz-desktop --launch [startup-file].
           All three desktop workflow entries retain the same engine across scripts.
 
@@ -381,6 +387,7 @@ jobs:
               "package/$PKG/resources/tools/multiwfn-matterviz-updater"
           fi
           for binary in \
+            build-matterviz-package/Multiwfn \
             build-matterviz-package/Multiwfn_MatterVizGUI \
             frontend/matterviz-desktop/target/release/matterviz-desktop \
             package/"$PKG"/resources/tools/multiwfn-workflow \
@@ -419,6 +426,13 @@ jobs:
           fi
           mkdir -p dist
           tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
+
+      - name: Test Linux desktop entry
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          MULTIWFN_TEST_LINUX_LAUNCHER="$PWD/package/$PKG/Multiwfn" \
+            python3 -m unittest discover -s tests -p test_linux_desktop_entry.py -v
 
       - name: Test extracted Linux WebView package
         if: runner.os == 'Linux'

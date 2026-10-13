@@ -290,7 +290,7 @@ impl WorkflowManager {
             copy_conf(&directory, &conf)?;
             copy_conf(&directory.join("conf"), &conf)?;
             let rc = format!("Multiwfn_exec=\"{}\"\nconfpath=\"{}\"\ncores={cores}\ncitations_output=references.bib\n",
-                multiwfn.display(), conf.display());
+                runner_path(multiwfn), runner_path(&conf));
             fs::write(directory.join("banewfn.rc"), rc).map_err(|e| e.to_string())?;
             if let Some(settings) = multiwfn
                 .parent()
@@ -306,6 +306,8 @@ impl WorkflowManager {
                 .arg("--cores")
                 .arg(cores.to_string());
             if let Some(wfn) = &state.wavefunction {
+                // Preserve the loaded session's identity, even if its input has
+                // since moved or disappeared. Only legacy rc paths are adapted.
                 command.arg("--wfn").arg(wfn);
             }
             for variable in &variables {
@@ -488,6 +490,42 @@ fn executable_name(name: &str) -> String {
 }
 fn existing_file(path: PathBuf) -> Option<PathBuf> {
     path.canonicalize().ok().filter(|p| p.is_file())
+}
+
+// Keep canonical paths for host I/O and containment checks, but do not leak
+// Rust's Windows verbatim namespace into BaneWfn's rc file.
+// The runner appends /module.conf and its batch backend invokes cmd.exe; neither
+// operation accepts verbatim paths with the same semantics as native Win32 I/O.
+fn runner_path(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    #[cfg(windows)]
+    if let Some(std::path::Component::Prefix(prefix)) = path.components().next() {
+        match prefix.kind() {
+            std::path::Prefix::VerbatimDisk(_) => return value[4..].to_owned(),
+            std::path::Prefix::VerbatimUNC(_, _) => return format!("\\\\{}", &value[8..]),
+            _ => {}
+        }
+    }
+    value.into_owned()
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn runner_paths_use_win32_drive_and_unc_names() {
+    for (input, expected) in [
+        (
+            r"\\?\C:\目录 with spaces\engine.exe",
+            r"C:\目录 with spaces\engine.exe",
+        ),
+        (
+            r"\\?\UNC\server\share\目录\config",
+            r"\\server\share\目录\config",
+        ),
+        (r"C:\normal\input.fch", r"C:\normal\input.fch"),
+        (r"\\server\share\input.fch", r"\\server\share\input.fch"),
+    ] {
+        assert_eq!(runner_path(Path::new(input)), expected);
+    }
 }
 fn default_results(startup_file: &Path) -> Result<PathBuf, String> {
     let parent = startup_file.parent().ok_or("Invalid startup file")?;

@@ -241,6 +241,25 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
     if(MINGW)
       target_link_options(Multiwfn PRIVATE -municode)
     endif()
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(Multiwfn tools/linux/workflow_launcher.c)
+    install(TARGETS Multiwfn RUNTIME DESTINATION bin COMPONENT workflows)
+    configure_file(tools/linux/install-desktop-entry.sh
+      "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh" COPYONLY)
+    configure_file(frontend/matterviz-desktop/icons/icon.png
+      "${CMAKE_CURRENT_BINARY_DIR}/resources/multiwfn.png" COPYONLY)
+    file(CHMOD "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh"
+      PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+    add_custom_target(multiwfn_linux_desktop ALL
+      COMMAND bash "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh"
+        --output-dir "${CMAKE_CURRENT_BINARY_DIR}"
+      DEPENDS Multiwfn
+      COMMENT "Generating Linux application icon"
+      VERBATIM)
+    install(PROGRAMS tools/run-workflows-gui tools/linux/install-desktop-entry.sh
+      DESTINATION bin COMPONENT workflows)
+    install(FILES frontend/matterviz-desktop/icons/icon.png
+      DESTINATION bin/resources RENAME multiwfn.png COMPONENT workflows)
   endif()
   configure_file(tools/run-workflows-gui "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui" COPYONLY)
   file(CHMOD "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui"

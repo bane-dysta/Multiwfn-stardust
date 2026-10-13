@@ -22,7 +22,7 @@ Result files and logs remain in each job directory.
 The existing engine-first GUI launch remains available with its previous batch
 backend. Use the new launcher for persistent sessions; it does not attach to an
 arbitrary terminal process. Persistent sessions support Linux/WSL, Windows and
-macOS. Use `run-workflows-gui` on Linux, `Multiwfn.exe` on Windows, or open
+macOS. Open `Multiwfn` on Linux, `Multiwfn.exe` on Windows, or open
 `Multiwfn.app` on macOS. The macOS tar package supports
 `resources/tools/matterviz-desktop --launch [startup-file]`. Omit the startup
 file to choose it in a native dialog. A failed persistent launch reports an error;
@@ -42,8 +42,19 @@ For a complete Linux desktop build with the frontend and Rust host:
 
 ```sh
 bash tools/build_workflows_gui.sh
-./build/run-workflows-gui /absolute/path/to/startup.fchk
+./build/Multiwfn /absolute/path/to/startup.fchk
 ```
+
+Linux builds also generate `build/Multiwfn-Workflows.desktop`. Run
+`./build/install-desktop-entry.sh` once to add **Multiwfn** to your application
+menu. In a downloaded Linux package, run `./install-desktop-entry.sh` from the
+unpacked package instead. This registers the current absolute location for the
+current user; rerun it after moving the package. No root privileges are needed.
+The application icon opens the native startup-file chooser. The compiled
+`Multiwfn` entry locates its own directory even through a symbolic link, then
+starts the existing runtime wrapper and persistent host. `run-workflows-gui`
+remains available for compatibility. File managers may require marking a
+`.desktop` file as trusted before launching it outside the application menu.
 
 Omit the startup argument to open the native file chooser. The launcher's engine,
 host and runner are all under `build/`; an HTML file alone is not the application.
@@ -78,9 +89,12 @@ The default staging layout is:
 
 ```text
 Multiwfn_MatterVizGUI
+Multiwfn                         # Linux GUI executable
+install-desktop-entry.sh         # Linux application-menu registration
 run-workflows-gui
 settings.ini
 resources/
+  multiwfn.png                  # Linux application icon
   tools/matterviz-desktop
   tools/multiwfn-workflow
   workflows/conf/*.conf

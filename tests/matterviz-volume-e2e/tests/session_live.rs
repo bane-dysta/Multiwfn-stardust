@@ -1,7 +1,9 @@
 //! Real native process and real C++ runner, using menu state and XYZ I/O only.
 //! No electronic-structure calculation or wavefunction analysis is performed.
 #![cfg(any(unix, windows))]
-use matterviz_volume_e2e::{service::HttpService, session_engine::SessionEngine};
+use matterviz_volume_e2e::{
+    service::HttpService, session_engine::SessionEngine, workflows::WorkflowManager,
+};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
@@ -106,6 +108,20 @@ fn persistent_process_preserves_memory_and_gui_transport() {
         fs::write(library.join("cancel.bw"), "%command\necho entered>entered\npowershell -NoProfile -Command Start-Sleep -Seconds 2\necho finished>finished-block\nend\n%command\necho bad>must-not-run\nend\n").unwrap();
     }
     fs::write(library.join("module.bwc"), "[memory]\n%process\nset\nend\n#>>> BANEWFN_INLINE_CONF_BEGIN memory\n# [main]\n# 1000\n# [set]\n# 5\n# 0.125\n# [quit]\n# q\n#<<< BANEWFN_INLINE_CONF_END memory\n").unwrap();
+    // Unlike an inline .bwc, a .bw must open the staged external conf directory.
+    // Windows canonical paths use \\?\; handing those to the C++ config loader
+    // used to fail when it appended a forward slash before the module filename.
+    fs::create_dir(library.join("conf")).unwrap();
+    fs::write(
+        library.join("conf/native_io.conf"),
+        "[main]\nxyz\n[export]\nmodule.xyz\n[quit]\nq\n",
+    )
+    .unwrap();
+    fs::write(
+        library.join("external.bw"),
+        "[native_io]\n%process\nexport\nend\n",
+    )
+    .unwrap();
     fs::write(
         library.join("reload.bw"),
         "wfn_rebase=\n%raw\nxyz\nreloaded.xyz\nend\n",
@@ -135,6 +151,36 @@ fn persistent_process_preserves_memory_and_gui_transport() {
     let service = HttpService::start_with_control(config, Some(control)).unwrap();
     service.attach_session(owner.clone()).unwrap();
     println!("Live session PID: {}", owner.pid);
+    // Also exercise the legacy engine-first manager: the previous package test
+    // wrote its own POSIX-style rc file and missed canonicalized GUI selections.
+    let batch = WorkflowManager::new(Some(u64::from(owner.pid)), Some(&input));
+    fs::create_dir(base.join("batch results")).unwrap();
+    batch
+        .select("results", &base.join("batch results"))
+        .unwrap();
+    batch
+        .start(&json!({"script":"external.bw","cores":1,"variables":[],"dryRun":false}))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let status = batch.status();
+        if status["job"]["state"] != "running" {
+            assert_eq!(status["job"]["state"], "completed", "{status}");
+            assert!(status["session"].is_null());
+            assert!(fs::read_to_string(
+                Path::new(status["job"]["directory"].as_str().unwrap()).join("module.xyz")
+            )
+            .unwrap()
+            .contains("He"));
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "batch startup timed out: {status}"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    batch.shutdown();
     let first = run(service.url(), "set.bw");
     assert_eq!(first["job"]["state"], "completed", "{first}");
     assert_eq!(first["session"]["pid"], owner.pid);
@@ -162,6 +208,14 @@ fn persistent_process_preserves_memory_and_gui_transport() {
     }
     let module = run(service.url(), "module.bwc");
     assert_eq!(module["job"]["state"], "completed", "{module}");
+    let external = run(service.url(), "external.bw");
+    assert_eq!(external["job"]["state"], "completed", "{external}");
+    assert_eq!(external["session"]["pid"], owner.pid);
+    assert!(fs::read_to_string(
+        Path::new(external["job"]["directory"].as_str().unwrap()).join("module.xyz")
+    )
+    .unwrap()
+    .contains("He"));
     let started = api(
         service.url(),
         "run",

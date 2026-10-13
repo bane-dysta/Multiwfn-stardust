@@ -1,6 +1,57 @@
 # BaneWfn workflow integration — 2026-10-06
 
-## Portable persistent sessions — 2026-10-13 (in progress)
+## Linux application entry — 2026-10-13 (accepted locally)
+
+Release: `workflows-linux-entry1`. Linux workflow builds now include the compiled
+`Multiwfn` GUI entry, a project icon, `Multiwfn-Workflows.desktop` in the build
+directory, and `install-desktop-entry.sh` for the current user's application
+menu. The entry finds its own directory through `/proc/self/exe`, preserves file
+arguments and exit status, and delegates to the already validated runtime
+wrapper. The persistent engine and original scientific code are unchanged.
+The Linux CI package now includes this entry, icon and registration script;
+its package job exercises the relocated executable through GIO. Registration
+uses absolute paths and must be repeated if the package is moved.
+
+Local ready-to-use entries:
+
+- Executable: `/home/bane/smokes/Multiwfn-stardust/build/Multiwfn`.
+- Linux menu: `/home/bane/.local/share/applications/Multiwfn-Workflows.desktop`.
+- This WSL host also has a Windows Start-menu shortcut **Multiwfn (Linux)**,
+  with a copy at `build/Multiwfn (Linux).lnk`. It runs the same Linux executable
+  using `C:\Program Files\WSL\wslg.exe`, distribution `Ubuntu-24.04`, user `bane`.
+  This machine-specific shortcut is outside the portable source/package.
+
+Validation:
+
+- `cmake -S . -B build` and `cmake --build build -j4`: passed; reused the
+  existing Release build and staged native/frontend resources.
+- `python3 -m unittest discover -s tests -p test_linux_desktop_entry.py -v`:
+  3 passed, including real GIO launch with no input and with a startup file,
+  relocation, symlinks, Chinese/spaces/special characters and failure handling.
+- `python3 -m unittest discover -s tests -p test_matterviz_build_names.py -v`:
+  25 passed. `python3 tests/test_workflow_package.py build`: passed (XYZ I/O
+  and recipe rendering only, no electronic-structure calculation).
+- Actual installed Linux menu entry opened a WSLg WebView with a Chinese/space
+  startup filename, emitted `ready`, and reaped engine PID 2560134 after Return.
+  Evidence: `build/linux-entry-native-window/`. Windows shortcut target and
+  arguments were checked after saving; direct Windows shortcut clicking was
+  not automated. Windows/macOS engines were not rebuilt in this round.
+- C launcher compiled with `-std=c11 -Wall -Wextra -Werror`; shell syntax,
+  workflow YAML parsing, `git diff --check`, and staged CMake workflows install
+  passed. All 68 original scientific source files remain identical to baseline.
+- This entry-only change has not been run on GitHub Actions yet; the preceding
+  three-platform session implementation's CI results remain recorded below.
+
+Delivery: `artifacts/2026-10-13/deliveries/multiwfn-linux-entry1/` (cumulative and
+session2-ci1 incremental patches, source archive, WIP bundle and checksums).
+WIP-024/025: `artifacts/2026-10-13/wip/multiwfn-linux-entry/`.
+
+## Portable persistent sessions — 2026-10-13 (accepted)
+
+Release: `workflows-session2-ci1`. Final commit
+`a32b50776fa7465097fde520b18aaaab422256b2`; all four test jobs passed in
+https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38369412491 .
+Tag-only signing/publication were skipped. No upstream PR or merge was made.
 
 Windows and macOS now use the desktop-owned session implementation alongside
 Linux. The generated entry still has exactly two adapter substitutions; original
@@ -17,15 +68,60 @@ app behavior. macOS app resources and executable paths are resolved separately.
 Engine startup logs now live under the user's temporary directory. Owned engine
 destruction also reaps a child after startup/service failure.
 
-Local validation so far: Fortran input probe, full native GUI build, 142 native
-tests, 42 build/entry/app contracts, Rust clippy, Windows GNU Rust test-target
-cross-check, and Windows C adapter/launcher compilation passed. Real Linux live
-test passed with retained state, rejected exit recovery, cancellation, reload,
-GUI/grid refresh, CRLF recipes and a 96 KiB command block (PID 2492477, 2.20 s).
-These are input and data-I/O checks, not electronic-structure calculations.
-Current three-platform CI: run 38365459075, candidate 30fd88e9; pending.
-Local executable: `build/run-workflows-gui [startup-file]`.
-WIP snapshots: `artifacts/2026-10-13/wip/multiwfn-session2/`.
+Windows engine and runner embed a UTF-8 process manifest. The extended second
+run (38367054540) exposed a native reload failure for Chinese filenames; this
+manifest fixes the code-page mismatch without changing original Fortran sources.
+A probe on the user's Windows host measured ACP 936 without the manifest and
+65001 with it. The final native Windows test passes Chinese reload and subsequent
+workflow staging. The source-build Windows launcher is installed with workflows,
+and the CMake macOS app target supplies workflow resources when enabled.
+
+Validation:
+
+- Linux host/headless suites: 140/144 passed; Windows: 115/119; macOS: 133/137.
+  The two new pipe tests cover fragmented 256 KiB transfers, EOF and timeout.
+- Extracted-package persistent tests passed: Windows PID 8896 (7.87 s), Linux
+  PID 30220 (2.22 s), macOS tar PID 31949 (5.16 s) and app PID 32038 (5.32 s).
+  Linux build-tree PID 32671 also passed (2.29 s). These explicitly enable the
+  live test, which is ignored in the ordinary unit-test invocation.
+- Live tests cover the same PID across workflows, retained menu/grid state after
+  removing source files, raw exit rejection and continued use, cancellation,
+  explicit/same-path reload, GUI refresh, automatic results, CRLF recipes,
+  a 96 KiB command block, Chinese/space paths, and clean exit code 0.
+- The Fortran scratch-input probe passed on all three platforms. Existing batch
+  package tests and GUI/IPC regressions also passed, including macOS tar/app.
+- Local full build: `bash tools/build_workflows_gui.sh`; final incremental build:
+  `cmake --build build -j4`. Local native menu/I/O test PID 2498139 passed (2.29 s).
+  A real WSLg WebView opened and returned exit code 0 through the authenticated
+  Return endpoint. Local checks included 142 existing native tests, two new pipe
+  tests, 9 C++ runner tests, build/entry/app contracts, clippy, Windows GNU Rust
+  cross-check, Windows C adapter/launcher compilation, and manifest compilation.
+- All 68 original scientific sources remain byte-identical to the baseline.
+  Local live tests perform menu/data I/O, not electronic-structure calculations.
+
+Full Windows/macOS desktop interaction and their native startup file dialogs
+have not been manually exercised here; CI validates their native session engines,
+packaged resources and launch arguments. Original Multiwfn filename storage is
+200 bytes (`define.f90`); that native limit is unchanged. Cancellation waits for
+a block to return to the main menu; arbitrary pre-existing terminal engines cannot
+be attached. These remain the declared boundaries of this adapter.
+
+Downloads (GitHub login required):
+
+- [Windows ZIP](https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38369412491/artifacts/11798544717): run `Multiwfn.exe`.
+- [macOS DMG](https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38369412491/artifacts/11799266494): open `Multiwfn.app`.
+- [macOS tar](https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38369412491/artifacts/11798967916).
+- [Linux tar](https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38369412491/artifacts/11798188685).
+
+Complete local executable:
+`/home/bane/smokes/Multiwfn-stardust/build/run-workflows-gui [startup-file]`.
+Engine: `build/Multiwfn_MatterVizGUI`; desktop/runner: `build/resources/tools/`.
+Delivery: `artifacts/2026-10-13/deliveries/multiwfn-session2-ci1/` (cumulative and
+session1-ci1 incremental patches, source, WIP bundle, validation and checksums).
+Logs: `artifacts/2026-10-13/checks/multiwfn-session2/`.
+WIP-020 onward: `artifacts/2026-10-13/wip/multiwfn-session2/`.
+Final delivered executable sources match the passing commit; only this acceptance
+record is added afterward. No incomplete binary downloads are included.
 
 ## Cross-platform Actions validation — 2026-10-13
 
