@@ -342,15 +342,15 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
           cp "build-matterviz-package/resources/tools/multiwfn-workflow$suffix" "package/$pkg/resources/tools/"
           if [ "$RUNNER_OS" = Linux ]; then
-            cp build-matterviz-package/Multiwfn build-matterviz-package/banewfn build-matterviz-package/run-workflows-gui \
+            cp build-matterviz-package/Multiwfn build-matterviz-package/banewfn_gui build-matterviz-package/run-workflows-gui \
               build-matterviz-package/install-desktop-entry.sh "package/$pkg/"
             cp build-matterviz-package/resources/multiwfn.png "package/$pkg/resources/"
             cp build-matterviz-package/resources/tools/matterviz-file-dialog "package/$pkg/resources/tools/"
           fi
           cp docs/workflows.md "package/$pkg/README-Workflows.md"
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            cp tools/macos/banewfn_launcher.sh "package/$pkg/banewfn"
-            chmod +x "package/$pkg/banewfn"
+            cp tools/macos/banewfn_launcher.sh "package/$pkg/banewfn_gui"
+            chmod +x "package/$pkg/banewfn_gui"
           fi
           cat > "package/$pkg/README-MatterViz.txt" <<'EOF'
           MatterViz WebView package
@@ -657,7 +657,7 @@ jobs:
           set -euo pipefail
           cp build-matterviz-package/Multiwfn_MatterVizGUI.exe "package/$PKG/Multiwfn_MatterVizGUI.exe"
           cp build-matterviz-package/Multiwfn.exe "package/$PKG/Multiwfn.exe"
-          cp build-matterviz-package/banewfn.exe "package/$PKG/banewfn.exe"
+          cp build-matterviz-package/banewfn_gui.exe "package/$PKG/banewfn_gui.exe"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop.exe \
             "package/$PKG/resources/tools/matterviz-desktop.exe"
           if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then
@@ -814,14 +814,14 @@ jobs:
           set -euo pipefail
           if [ "$RUNNER_OS" = Windows ]; then
             export BANEWFN_TEST_PACKAGE="$PWD/clean-test"
-            test -f "$BANEWFN_TEST_PACKAGE/banewfn.exe"
+            test -f "$BANEWFN_TEST_PACKAGE/banewfn_gui.exe"
           else
             export BANEWFN_TEST_PACKAGE="$PWD/clean-test/$PKG"
-            test -x "$BANEWFN_TEST_PACKAGE/banewfn"
+            test -x "$BANEWFN_TEST_PACKAGE/banewfn_gui"
           fi
           cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test workbench_live -- --ignored --nocapture
           if [ "$RUNNER_OS" = macOS ]; then
-            export BANEWFN_TEST_PACKAGE="$PWD/macos-dist/BaneWfn.app/Contents/MacOS"
+            export BANEWFN_TEST_PACKAGE="$PWD/macos-dist/BaneWfn GUI.app/Contents/MacOS"
             export BANEWFN_TEST_OUTPUT="${BANEWFN_TEST_OUTPUT}-app"
             cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test workbench_live -- --ignored --nocapture
           fi

@@ -2,12 +2,12 @@
 
 ## Independent BaneWfn application
 
-Open `banewfn.exe` on Windows, `BaneWfn.app` on macOS, or `banewfn` on Linux.
+Open `banewfn_gui.exe` on Windows, `BaneWfn GUI.app` on macOS, or `banewfn_gui` on Linux.
 The workbench opens immediately. Choose a startup file and a `.bw` or `.bwc`
 script, configure its parameters, then run. The bundled Multiwfn engine starts
 when needed; no existing molecular session is required. The original Multiwfn
 entry remains available. On Linux, `install-desktop-entry.sh` also installs a
-BaneWfn application-menu entry. The macOS tar package includes a `banewfn` entry.
+BaneWfn application-menu entry. The macOS tar package includes a `banewfn_gui` entry.
 
 The startup file and script list occupy the left column. Parameters, script
 preview and results occupy the right column. Results default to a folder beside
@@ -48,6 +48,49 @@ array sweeps preview their first value. Inspection never executes shell commands
 or Multiwfn. Execution retains the original script, conf snapshot and explicit
 overrides (`parameters.json`) in a separate job directory, alongside the request,
 logs and results. Existing scripts and scientific defaults are not rewritten.
+
+## Rendering Cube results
+
+In **Results → Result files**, use **Render** beside a `.cub` or `.cube` file.
+This opens the existing MatterViz viewer in its own window, with the molecule
+read from the Cube. View controls, representations and image export remain
+available. No Multiwfn calculation is needed to display an existing result.
+
+Scripts can rename fixed-name Multiwfn outputs in `%command`. Keep the type
+suffix last to remain compatible with vcube:
+
+| Filename ending | Initial view |
+| --- | --- |
+| `_den.cub` | Electron-density surface |
+| `_elf.cub`, `_lol.cub` | ELF / LOL surface |
+| `_ole.cub`, `_ele.cub` | Hole / electron distribution |
+| `_oH.cub`, `_oH1.cub` | HOMO / HOMO−1, both signs |
+| `_oL.cub`, `_oL1.cub` | LUMO / LUMO+1, both signs |
+| `_au_esp.cub`, `_kcal_esp.cub` | ESP mapped onto the matching density |
+
+For example, `benzene_au_esp.cub` or `benzene_kcal_esp.cub` pairs with
+`benzene_den.cub` in the same directory. Units precede `_esp`; **do not use
+`benzene_esp_au.cub`**, which no longer has vcube's terminal type suffix.
+`au` means atomic units and `kcal` means kcal/mol. Select the suffix according
+to the actual values written by the script: BaneWfn recipes that multiply ESP
+by 627.51 already produce kcal/mol values. The viewer normalizes its display
+data only; original files are never converted or renamed by the GUI.
+
+For a legacy `benzene_esp.cub`, select the data unit in the result row. This
+choice is saved per file in `.banewfn-view-settings.json` within that job and
+can be changed later. Filename-declared units take precedence. Pairing requires
+exact common stems and one density file in the same directory; ambiguous or
+missing pairs are not guessed. The existing viewer rejects incompatible grids
+without interpolation. Unknown Cube names open as ordinary scalar fields.
+Display isovalues are adjustable and do not change computational parameters.
+Long aliases `_hole` / `_electron` and orbital offsets above 1 are also accepted
+by the GUI; use the short suffixes when a vcube script requires them.
+
+Each window owns a temporary view session, removed on normal close. Source
+outputs stay in the workflow directory; same-filesystem hard links avoid copying
+large grids, with copying as a fallback. Rendering is disabled during execution
+and for preflight-only jobs. Result listing includes subfolders, excludes hidden
+files, `conf` and symlinks, and is bounded to eight directory levels / 2048 entries.
 
 ## Panel in MatterViz
 

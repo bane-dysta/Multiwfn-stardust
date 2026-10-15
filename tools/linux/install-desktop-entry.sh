@@ -50,13 +50,13 @@ chmod 755 "$entry"
 mv -f -- "$entry" "$output_dir/Multiwfn-Workflows.desktop"
 trap - EXIT
 printf 'Application entry: %s/Multiwfn-Workflows.desktop\n' "$output_dir"
-if [[ -x "$app_root/banewfn" ]]; then
-  workflow_exec="${exec_path%Multiwfn}banewfn"
+if [[ -x "$app_root/banewfn_gui" ]]; then
+  workflow_exec="${exec_path%Multiwfn}banewfn_gui"
   cat > "$output_dir/BaneWfn.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=BaneWfn
+Name=BaneWfn GUI
 Comment=Configure and run wavefunction analysis workflows
 Comment[zh_CN]=配置与运行波函数分析工作流
 Exec=env "$workflow_exec" %f

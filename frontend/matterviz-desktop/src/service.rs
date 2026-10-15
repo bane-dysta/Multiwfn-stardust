@@ -162,6 +162,7 @@ impl WorkbenchService {
                                         .map_err(|e| e.to_string())?;
                                     match action {
                                         "inspect" => manager.inspect(&value),
+                                        "open-result" => manager.open_result(&value, &frontend),
                                         "parameter-path" => pick_parameter_path(&request.body),
                                         "pick" => {
                                             let kind = value["kind"]
@@ -966,6 +967,9 @@ impl ServiceRunner {
                 "inspect" => serde_json::from_slice(body)
                     .map_err(|e| e.to_string())
                     .and_then(|value| self.workflows.inspect(&value)),
+                "open-result" => serde_json::from_slice(body)
+                    .map_err(|e| e.to_string())
+                    .and_then(|value| self.workflows.open_result(&value, &self.frontend)),
                 "parameter-path" => pick_parameter_path(body),
                 "status" => Ok(self.workflows.status()),
                 "preview" => self.workflows.preview(

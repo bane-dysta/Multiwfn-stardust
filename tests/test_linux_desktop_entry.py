@@ -22,6 +22,7 @@ class LinuxDesktopEntryTests(unittest.TestCase):
         binary = Path(os.environ.get("MULTIWFN_TEST_LINUX_LAUNCHER", ROOT / "build/Multiwfn"))
         self.assertTrue(binary.is_file(), f"Build the Linux Multiwfn target first: {binary}")
         shutil.copy2(binary, self.app / "Multiwfn")
+        shutil.copy2(binary.with_name("banewfn_gui"), self.app / "banewfn_gui")
         for source in [ROOT / "tools/run-workflows-gui", ROOT / "tools/linux/install-desktop-entry.sh"]:
             target = self.app / source.name
             shutil.copy2(source, target)
@@ -65,6 +66,26 @@ class LinuxDesktopEntryTests(unittest.TestCase):
             while not self.capture.exists() and time.monotonic() < deadline:
                 time.sleep(0.02)
             self.assertEqual(self.arguments(), ["--launch", *args])
+
+    @unittest.skipUnless(shutil.which("gio"), "GIO desktop launcher required")
+    def test_banewfn_gui_entry_and_icon_do_not_shadow_cli(self):
+        startup = self.work / "苯 file.fch"
+        startup.write_text("fixture")
+        result = subprocess.run([str(self.app / "banewfn_gui"), str(startup)], env=self.env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual(self.arguments(), ["--workbench", str(startup)])
+        subprocess.run([str(self.app / "install-desktop-entry.sh")], env=self.env, check=True, capture_output=True)
+        entry = Path(self.env["XDG_DATA_HOME"]) / "applications/BaneWfn.desktop"
+        self.assertIn("banewfn_gui", entry.read_text())
+        self.capture.unlink()
+        result = subprocess.run(["gio", "launch", str(entry), str(startup)], env=self.env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        deadline = time.monotonic() + 5
+        while not self.capture.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(self.arguments(), ["--workbench", str(startup)])
+        self.assertFalse((self.app / "banewfn").exists())
 
     def test_incomplete_package_reports_failure(self):
         (self.app / "run-workflows-gui").unlink()

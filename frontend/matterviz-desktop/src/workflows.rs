@@ -245,16 +245,10 @@ impl WorkflowManager {
                     log = log[start..].to_owned();
                 }
             }
-            let files = fs::read_dir(&job.directory)
-                .into_iter()
-                .flatten()
-                .filter_map(Result::ok)
-                .filter(|entry| entry.path().is_file())
-                .take(128)
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .collect::<Vec<_>>();
+            let files = crate::workflow_results::files(&job.directory);
+            let cubes = crate::workflow_results::cubes(&job.directory, &files);
             json!({"directory":job.directory, "state":job.state, "exitCode":job.code,
-                "message":job.message, "log":log, "files":files})
+                "message":job.message, "log":log, "files":files, "cubes":cubes})
         });
         #[cfg(any(unix, windows))]
         let session_info = self
@@ -267,6 +261,19 @@ impl WorkflowManager {
             "runner":self.runner, "library":state.library, "results":state.results,
             "wavefunction":state.wavefunction, "multiwfn":self.multiwfn,
             "scripts":scripts, "catalogError":catalog_error, "job":job})
+    }
+
+    pub fn open_result(&self, request: &Value, frontend: &Path) -> Result<Value, String> {
+        let state = self.state.lock().map_err(|e| e.to_string())?;
+        let job = state.job.as_ref().ok_or("No workflow results")?;
+        if request["directory"] != json!(job.directory) {
+            return Err("The displayed workflow has changed; refresh its results".into());
+        }
+        if active(job) || job.state == "prepared" {
+            return Err("Wait for workflow execution to finish".into());
+        }
+        let plan = crate::workflow_results::plan(&job.directory, request)?;
+        crate::workflow_results::launch(&plan, frontend)
     }
 
     pub fn preview(&self, id: &str) -> Result<Value, String> {
@@ -1097,6 +1104,45 @@ mod tests {
             .unwrap_err()
             .contains("running Multiwfn"));
         assert_eq!(fs::read_dir(f.root.join("results")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn result_open_rejects_stale_running_and_preflight_jobs() {
+        let fixture = Fixture::new("exit 0");
+        let root = fixture.root.clone();
+        let mut state = fixture.manager.state.lock().unwrap();
+        state.job = Some(Job {
+            directory: root.clone(),
+            state: "running",
+            code: None,
+            message: String::new(),
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
+        drop(state);
+        assert!(fixture
+            .manager
+            .open_result(&json!({"directory":"old job","file":"x.cub"}), &root)
+            .unwrap_err()
+            .contains("changed"));
+        assert!(fixture
+            .manager
+            .open_result(&json!({"directory":root,"file":"x.cub"}), &root)
+            .unwrap_err()
+            .contains("finish"));
+        fixture
+            .manager
+            .state
+            .lock()
+            .unwrap()
+            .job
+            .as_mut()
+            .unwrap()
+            .state = "prepared";
+        assert!(fixture
+            .manager
+            .open_result(&json!({"directory":root,"file":"x.cub"}), &root)
+            .unwrap_err()
+            .contains("finish"));
     }
 
     #[test]

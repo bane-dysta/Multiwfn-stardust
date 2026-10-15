@@ -3,7 +3,7 @@
   import { Workflow, FolderOpen, FileCode2, FileText, Play, Square, Check, X, Terminal, Cpu, SlidersHorizontal } from '@lucide/svelte'
   import * as Tabs from '$lib/components/ui/tabs'
   import { t, locale, set_locale } from './i18n'
-  import { create_workflow_client, workflow_active, workflow_variables, display_path, type WorkflowStatus, type WorkflowSelection, type WorkflowInspection, type WorkflowField } from './workflows'
+  import { create_workflow_client, workflow_active, workflow_variables, workflow_cube_label, display_path, type WorkflowCube, type WorkflowStatus, type WorkflowSelection, type WorkflowInspection, type WorkflowField } from './workflows'
 
   export let open = false
   export let standalone = false
@@ -52,6 +52,16 @@
   let dialog: HTMLDialogElement | undefined
   let outputView: 'log' | 'files' = 'log'
   let activeTab = 'settings'
+  let resultUnits: Record<string, string> = {}
+  const openResult = async (cube: WorkflowCube): Promise<void> => {
+    if (!status?.job || busy) return
+    busy = true; error = ''
+    try {
+      await client.openResult(status.job.directory, cube.file, resultUnits[cube.file] || cube.unit || undefined)
+      apply(await client.status())
+    } catch (reason) { show_error(reason) }
+    finally { busy = false }
+  }
 
   const show_error = (reason: unknown): void => { if (!destroyed) error = reason instanceof Error ? reason.message : String(reason) }
   const preview = async (id: string): Promise<void> => {
@@ -67,6 +77,7 @@
   const apply = (next: WorkflowStatus): void => {
     if (destroyed) return
     if (status?.session && next.session && status.session.revision !== next.session.revision) onrefresh?.()
+    if (status?.job?.directory !== next.job?.directory) resultUnits = {}
     status = next
     if (!next.scripts.some((script) => script.id === selected)) void preview(next.scripts[0]?.id ?? '')
   }
@@ -220,7 +231,23 @@
                 {#if outputView === 'log'}
                   <pre class="workflow-log">{status.job.log}</pre>
                 {:else}
-                  <div class="workflow-result-files"><p class="workflow-result-path">{display_path(status.job.directory)}</p><ul>{#each status.job.files as file}<li><FileText size={14} /><span>{file}</span></li>{/each}</ul></div>
+                  <div class="workflow-result-files">
+                    <p class="workflow-result-path">{display_path(status.job.directory)}</p>
+                    <ul>{#each status.job.files as file}
+                      {@const cube = status.job.cubes?.find(cube => cube.file === file)}
+                      <li>
+                        <FileText size={16} /><div class="workflow-result-name"><span>{file}</span>{#if cube}<span class="workflow-result-kind">{$t(workflow_cube_label(cube))}{#if cube.unit} · {cube.unit}{/if}</span>{/if}</div>
+                        {#if cube}
+                          {#if cube.kind === 'esp' && !cube.unitDeclared}
+                            <select aria-label={`${$t('ESP data unit')}: ${file}`} value={resultUnits[file] || cube.unit || ''} onchange={(event) => resultUnits = { ...resultUnits, [file]: event.currentTarget.value }}>
+                              <option value="" disabled>{$t('Choose unit')}</option><option value="au">a.u.</option><option value="kcal/mol">kcal/mol</option>
+                            </select>
+                          {/if}
+                          <button type="button" onclick={() => openResult(cube)} disabled={busy || running || status.job.state === 'prepared' || (cube.kind === 'esp' && (!cube.density || (!cube.unit && !resultUnits[file])))} title={cube.kind === 'esp' && !cube.density ? $t('ESP needs one matching _den Cube in the same folder') : $t('Open in Multiwfn viewer')}>{$t('Render')}</button>
+                        {/if}
+                      </li>
+                    {/each}</ul>
+                  </div>
                 {/if}
               {:else}
                 <div class="workflow-output-empty"><Terminal size={24} /><p>{$t('No runs yet')}</p></div>
@@ -327,7 +354,10 @@
   .workflow-result-files { flex: 1; min-height: 0; padding: 16px 24px; overflow: auto; font: 12px/1.8 ui-monospace, monospace; }
   .workflow-result-path { margin: 0 0 12px; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
   ul { padding: 0; margin: 0; list-style: none; }
-  li { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; overflow-wrap: anywhere; }
+  li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--ui-border); overflow-wrap: anywhere; }
+  .workflow-result-name { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+  .workflow-result-kind { color: var(--ui-muted-foreground); font: 12px/1.6 system-ui, sans-serif; }
+  li button, li select { flex-shrink: 0; font: 12px/1.5 system-ui, sans-serif; }
   li :global(svg) { flex-shrink: 0; margin-top: 4px; color: var(--ui-muted-foreground); }
   li span { min-width: 0; }
   .workflow-output-empty { display: flex; flex: 1; align-items: center; justify-content: center; flex-direction: column; gap: 10px; padding: 24px; color: #8b98a8; }

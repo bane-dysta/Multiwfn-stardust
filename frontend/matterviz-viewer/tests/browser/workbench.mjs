@@ -8,6 +8,7 @@ await mkdir(artifacts, {recursive: true})
 const errors = []
 page.on('pageerror', error => errors.push(error.message))
 let sent
+let rendered
 let inspections = 0
 const status = {format: 'multiwfn-workflows', version: 1, available: true, session: null, runner: 'runner', library: '\\\\?\\C:\\BaneWfn\\scripts', results: '\\\\?\\D:\\分析\\苯_workflows', wavefunction: '\\\\?\\D:\\分析\\苯.fch', multiwfn: 'engine', scripts: [{id: 'density.bw', name: 'density.bw'}], catalogError: null, job: null}
 await page.route('**/api/workflows/**', async route => {
@@ -23,8 +24,13 @@ await page.route('**/api/workflows/**', async route => {
   }
   if (action === 'run') {
     sent = request.postDataJSON()
-    status.job = {state: 'completed', directory: 'D:\\分析\\苯_workflows\\run', exitCode: 0, message: '', log: 'Analysis completed', files: ['density.cub']}
+    status.job = {state: 'completed', directory: 'D:\\分析\\苯_workflows\\run', exitCode: 0, message: '', log: 'Analysis completed', files: ['ESP/benzene_den.cub', 'ESP/benzene_esp.cub', 'ESP/benzene_kcal_esp.cub'], cubes: [
+      {file: 'ESP/benzene_den.cub', kind: 'density', unit: null, orbital: null},
+      {file: 'ESP/benzene_esp.cub', kind: 'esp', unit: null, unitDeclared: false, orbital: null, density: 'ESP/benzene_den.cub'},
+      {file: 'ESP/benzene_kcal_esp.cub', kind: 'esp', unit: 'kcal/mol', unitDeclared: true, orbital: null, density: 'ESP/benzene_den.cub'},
+    ]}
   }
+  if (action === 'open-result') { rendered = request.postDataJSON(); value = {opened: true} }
   await route.fulfill({contentType: 'application/json', body: JSON.stringify(value)})
 })
 try {
@@ -58,6 +64,21 @@ try {
   await panel.getByText('Analysis completed', {exact:true}).waitFor()
   assert.deepEqual(sent.parameters, {'0/0/grid': '1'})
   assert.ok(inspections >= 2)
+  await panel.getByRole('button', {name: '结果文件', exact:true}).click()
+  const legacy = panel.locator('li').filter({hasText: 'ESP/benzene_esp.cub'})
+  assert.equal(await legacy.getByRole('button', {name: '渲染', exact:true}).isEnabled(), false)
+  await legacy.getByRole('combobox').selectOption('kcal/mol')
+  await legacy.getByRole('button', {name: '渲染', exact:true}).click()
+  await page.waitForTimeout(100)
+  assert.deepEqual(rendered, {directory: status.job.directory, file: 'ESP/benzene_esp.cub', unit: 'kcal/mol'})
+  await panel.getByRole('button', {name: 'English', exact:true}).click()
+  assert.ok((await legacy.innerText()).includes('Electrostatic potential'))
+  assert.equal(await legacy.getByRole('combobox').inputValue(), 'kcal/mol')
+  const declared = panel.locator('li').filter({hasText: 'ESP/benzene_kcal_esp.cub'})
+  assert.equal(await declared.getByRole('combobox').count(), 0)
+  await declared.getByRole('button', {name: 'Render', exact:true}).click()
+  await page.waitForTimeout(100)
+  assert.equal(rendered.file, 'ESP/benzene_kcal_esp.cub')
   assert.deepEqual(errors, [])
   await page.screenshot({path: `${artifacts}/banewfn-results.png`})
   console.log('PASS: independent window, bilingual labels/help/options, preserved selections, 30/70 layout, native preview and explicit overrides')

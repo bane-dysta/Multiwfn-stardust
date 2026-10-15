@@ -3,6 +3,23 @@ import type { ManifestEntry } from './manifest'
 
 /** Hartree to kcal/mol for one electron. */
 export const KCAL_PER_HARTREE = 627.5094740631
+
+/** Imported ESP cubes may already contain kcal/mol values. Normalize only the
+ * display dataset; existing ESP controls and legends use atomic units internally. */
+export const normalize_esp_volume = (volume: VolumetricData, entry: ManifestEntry): VolumetricData => {
+  if (entry.analysisKind !== 'esp-potential' || entry.valueUnit !== 'kcal/mol') return volume
+  const scale = (value: number): number => value / KCAL_PER_HARTREE
+  return {
+    ...volume,
+    grid: Array.isArray(volume.grid)
+      ? volume.grid.map(plane => plane.map(row => row.map(scale)))
+      : { ...volume.grid, data: volume.grid.data.map(scale) },
+    data_range: {
+      min: scale(volume.data_range.min), max: scale(volume.data_range.max),
+      abs_max: scale(volume.data_range.abs_max), mean: scale(volume.data_range.mean),
+    },
+  }
+}
 export const DEFAULT_ESP_LIMIT = 0.05
 export const MINIMUM_ESP_LIMIT = 0.005
 
@@ -151,9 +168,13 @@ const number_or = (value: unknown, fallback: number): number => {
 const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.max(minimum, Math.min(maximum, value))
 
-const as_grid = (volume: unknown): unknown[][][] | undefined => {
+const as_grid = (volume: unknown): VolumetricData['grid'] | undefined => {
   const grid = (volume as { grid?: unknown })?.grid
-  return Array.isArray(grid) ? grid as unknown[][][] : undefined
+  if (Array.isArray(grid)) return grid as number[][][]
+  if (!grid || typeof grid !== 'object') return undefined
+  const flat = grid as Exclude<VolumetricData['grid'], number[][][]>
+  return (flat.data instanceof Float32Array || flat.data instanceof Float64Array)
+    && Array.isArray(flat.dimensions) && ['x-fastest', 'z-fastest'].includes(flat.order) ? flat : undefined
 }
 
 /** Return validated dimensions without assuming a particular parser layout. */
@@ -161,6 +182,13 @@ export const volume_dimensions = (volume: unknown): Vec3 | undefined => {
   const candidate = (volume as { grid_dims?: unknown })?.grid_dims
   const grid = as_grid(volume)
   if (!grid) return undefined
+  if (!Array.isArray(grid)) {
+    const dims = grid.dimensions
+    if (dims.length !== 3 || !dims.every(n => Number.isInteger(n) && n > 0)
+      || grid.data.length !== dims[0] * dims[1] * dims[2]
+      || (candidate !== undefined && (!Array.isArray(candidate) || candidate.length !== 3 || candidate.some((n, i) => n !== dims[i])))) return undefined
+    return [...dims]
+  }
   const values = Array.isArray(candidate) && candidate.length >= 3
     ? candidate.slice(0, 3).map(Number)
     : [grid?.length ?? 0, grid?.[0]?.length ?? 0, grid?.[0]?.[0]?.length ?? 0]
@@ -195,6 +223,10 @@ const vectors_match = (left: Vec3, right: Vec3, tolerance = 1e-8): boolean =>
 
 const grid_value = (volume: unknown, x: number, y: number, z: number): number => {
   const grid = as_grid(volume)
+  if (grid && !Array.isArray(grid)) {
+    const [nx, ny, nz] = grid.dimensions
+    return grid.data[grid.order === 'x-fastest' ? x + nx * (y + ny * z) : z + nz * (y + ny * x)]
+  }
   const value = grid?.[x]?.[y]?.[z]
   return Number(value)
 }

@@ -20,6 +20,7 @@ mod transport;
 mod updater;
 pub mod volume_protocol;
 pub mod volume_store;
+mod workflow_results;
 mod workflows;
 
 use std::env;
@@ -38,6 +39,9 @@ use lifecycle::StartupStatus;
 use service::HttpService;
 
 fn main() -> ExitCode {
+    if env::args().nth(1).as_deref() == Some("--workflow-result") {
+        return launch_workflow_result();
+    }
     if env::args().nth(1).as_deref() == Some("--workbench") {
         return launch_workbench();
     }
@@ -150,7 +154,10 @@ fn launch_workbench() -> ExitCode {
                     .build()?;
                 Ok(())
             })
-            .run(desktop_context());
+            .build(desktop_context())
+            .map(|app| {
+                app.run_return(|_, _| {});
+            });
         service.shutdown();
         result.map_err(|e| e.to_string())
     })();
@@ -158,6 +165,57 @@ fn launch_workbench() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("BaneWfn: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn launch_workflow_result() -> ExitCode {
+    use std::io::Read;
+    let result = (|| -> Result<ExitCode, String> {
+        let frontend = env::args_os().nth(2).ok_or("Missing viewer frontend")?;
+        let mut input = String::new();
+        std::io::stdin()
+            .take(128 * 1024)
+            .read_to_string(&mut input)
+            .map_err(|e| e.to_string())?;
+        let plan = serde_json::from_str(&input).map_err(|e| e.to_string())?;
+        let session = workflow_results::ViewSession::create(&plan)?;
+        let service = HttpService::start_with_control(
+            service::AppConfig {
+                frontend: frontend.into(),
+                session: session.0.clone(),
+                manifest: None,
+                state: None,
+                host: if cfg!(target_os = "macos") {
+                    "localhost"
+                } else {
+                    "127.0.0.1"
+                }
+                .into(),
+                port: 0,
+                transport: None,
+                multiwfn_pid: None,
+            },
+            None,
+        )?;
+        eprintln!("BaneWfn result viewer: {}", service.url());
+        // The guard lives through the WebView event loop, even if the workbench exits.
+        Ok(run_tauri(
+            service.url().to_owned(),
+            Some(Arc::new(service)),
+            Duration::from_secs(120),
+        ))
+    })();
+    match result {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("BaneWfn result viewer: {error}");
+            rfd::MessageDialog::new()
+                .set_title("BaneWfn")
+                .set_description(&error)
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             ExitCode::from(2)
         }
     }
@@ -348,7 +406,9 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
                 }
             }
         })
-        .run(desktop_context());
+        // Builder::run exits the process directly, bypassing cleanup guards.
+        .build(desktop_context())
+        .map(|app| app.run_return(|_, _| {}));
 
     if let Err(error) = result {
         let message = format!("error while running MatterViz Desktop: {error}");
@@ -372,5 +432,5 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
             return ExitCode::from(2);
         }
     }
-    ExitCode::SUCCESS
+    ExitCode::from(result.unwrap_or(2) as u8)
 }

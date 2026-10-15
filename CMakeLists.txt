@@ -236,12 +236,12 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
   add_executable(session-input-probe tests/session_input_probe.f90)
   if(WIN32)
     add_executable(Multiwfn WIN32 tools/windows/workflow_launcher.c)
-    add_executable(banewfn WIN32 tools/windows/workflow_launcher.c)
-    target_compile_definitions(banewfn PRIVATE BANEWFN_ENTRY=1)
-    target_link_libraries(banewfn PRIVATE user32)
-    install(TARGETS banewfn RUNTIME DESTINATION bin COMPONENT workflows)
+    add_executable(banewfn_gui WIN32 tools/windows/workflow_launcher.c)
+    target_compile_definitions(banewfn_gui PRIVATE BANEWFN_ENTRY=1)
+    target_link_libraries(banewfn_gui PRIVATE user32)
+    install(TARGETS banewfn_gui RUNTIME DESTINATION bin COMPONENT workflows)
     if(MINGW)
-      target_link_options(banewfn PRIVATE -municode)
+      target_link_options(banewfn_gui PRIVATE -municode)
     endif()
     install(TARGETS Multiwfn RUNTIME DESTINATION bin COMPONENT workflows)
     target_link_libraries(Multiwfn PRIVATE user32)
@@ -250,9 +250,9 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
     endif()
   elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(Multiwfn tools/linux/workflow_launcher.c)
-    add_executable(banewfn tools/linux/workflow_launcher.c)
-    target_compile_definitions(banewfn PRIVATE BANEWFN_ENTRY=1)
-    install(TARGETS banewfn RUNTIME DESTINATION bin COMPONENT workflows)
+    add_executable(banewfn_gui tools/linux/workflow_launcher.c)
+    target_compile_definitions(banewfn_gui PRIVATE BANEWFN_ENTRY=1)
+    install(TARGETS banewfn_gui RUNTIME DESTINATION bin COMPONENT workflows)
     install(TARGETS Multiwfn RUNTIME DESTINATION bin COMPONENT workflows)
     configure_file(tools/linux/install-desktop-entry.sh
       "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh" COPYONLY)
@@ -263,7 +263,7 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
     add_custom_target(multiwfn_linux_desktop ALL
       COMMAND bash "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh"
         --output-dir "${CMAKE_CURRENT_BINARY_DIR}"
-      DEPENDS Multiwfn banewfn
+      DEPENDS Multiwfn banewfn_gui
       COMMENT "Generating Linux application icon"
       VERBATIM)
     install(PROGRAMS tools/run-workflows-gui tools/linux/install-desktop-entry.sh

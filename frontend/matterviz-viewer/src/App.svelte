@@ -54,6 +54,7 @@
   } from './workbench-plots'
   import {
     ESP_COLORS,
+    normalize_esp_volume,
     estimate_esp_range,
     extract_esp_extrema_async,
     find_declared_esp_pair,
@@ -698,7 +699,7 @@
     const parsed = parse_volumetric_file(text, entry.path)
     if (!parsed) throw new Error(`MatterViz could not parse ${entry.path}`)
     const volumes = parsed.volumes.map((volume, idx) => ({
-      ...volume,
+      ...normalize_esp_volume(volume, entry),
       ...(manifest.structure?.path ? { origin_mode: 'absolute' as const } : {}),
       label: entry.name || `${entry.role || 'Volume'} ${idx + 1}`,
       source: entry.path,

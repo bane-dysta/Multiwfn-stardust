@@ -1,5 +1,37 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Cube result viewer and banewfn_gui entry — 2026-10-15 (verification)
+
+Continues the accepted workbench tree `74bb401b950aa9e183b6b92b64caefd5dd565bf2`;
+cumulative baseline remains `ea0befc3aad728bdd61ede9b45a68725df490f5d`.
+Desktop entry renamed to `banewfn_gui` / `banewfn_gui.exe` and macOS
+`BaneWfn GUI.app`, preserving the canonical command-line BaneWfn executable.
+
+Result rows open existing MatterViz windows, using Cube parsing and rendering
+already supplied by that framework. The type suffix stays last for vcube:
+`name_au_esp.cub` / `name_kcal_esp.cub` pair with `name_den.cub`. Legacy `_esp`
+uses a remembered, editable per-file unit selection. GUI-only display conversion
+normalizes kcal/mol potentials; original Cube data and scientific sources are
+unchanged. Pairing is exact, local and unique; incompatible grids are rejected.
+Nested output listing excludes symlinks, hidden files and conf snapshots.
+Concurrent viewer windows use separate temporary sessions and own their cleanup.
+
+Local checks so far: frontend 300 passed / 1 skipped; Rust 149 passed, two
+opt-in live tests ignored; clippy clean; Linux entry 4/4, macOS bundle 8/8.
+Browser workbench checks verify the render request, unit selection and bilingual
+labels. Native Linux result opening and actual WebGL rendering passed using
+synthetic Cube fields and single-atom XYZ export (no electronic calculation).
+The native close test exposed Tauri Builder::run bypassing Rust destructors;
+the event loop now uses run_return so service/scratch cleanup runs. Revalidation
+of closing and cross-platform CI are in progress.
+
+The existing ESP display helpers also needed support for MatterViz's flat grid
+buffers. Both storage orders now match the legacy nested-grid range/extrema
+tests; the algorithms themselves are unchanged. The first native probe used
+POST for the GET-only Return endpoint; the corrected probe exposed the cleanup
+issue above. Evidence: `build/result-view-*.log`, `build/result-view-ui/`.
+Current Linux binary: `build/banewfn_gui` (full native frontend/host/engine).
+
 ## Independent BaneWfn workbench — 2026-10-15 (in verification)
 
 Baseline remains `ea0befc3aad728bdd61ede9b45a68725df490f5d`; prior work is
@@ -640,8 +672,33 @@ Local verification:
 
 Linux entry: `/home/bane/smokes/Multiwfn-stardust/build/banewfn`.
 Canonical CLI: `/home/bane/smokes/banewfn/build/bin/banewfn`.
-`build-win` currently contains a test runtime and sidecar build, not a complete
-desktop package. Final cross-platform CI and native Windows package checks are
-still pending. The first macOS CI build exposed duplicate Tauri Info.plist
+The first macOS CI build exposed duplicate Tauri Info.plist
 symbols; both entry paths now share one context generator. BaneWfn.app also
 bypasses the original Cocoa file picker via its app marker.
+
+Final CI: https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38730617058
+at `aca28f8deb58a656a5e2fbf46763fe4730c7e17a` passed all four jobs: frontend/Rust,
+Linux, Windows and macOS packaging. Extracted-package independent workbench
+execution passed on all three platforms, including the macOS app layout.
+Signing/release publication was skipped for this test branch. The final local
+frontend run again passed 298 tests (1 skipped), Rust 145 (2 opt-in live tests
+ignored in that command), and all 68 original scientific files matched baseline.
+macOS interactive window behavior is not locally tested.
+
+Windows native acceptance passed on the downloaded CI package (artifact
+11971047853, SHA256 `8e27076e4de42dd6730686380b03036b07608527d006594f2d0b5f040100fe92`).
+The real BaneWfn window opened, exposed bilingual parameter metadata, selected
+the automatic results directory, and completed benzene Mayer analysis on 1 core.
+C1–C2 = 1.45268106 matched Linux within 1e-5; `bndmat.txt` was present. The root
+`banewfn.exe` also opened without a startup file and both windows closed normally.
+Browser acceptance separately verified translated labels/help/options and
+preserved selections; the Windows native calculation was driven through its
+production HTTP API. Log: `build/workbench-native-windows-final.log`.
+
+Ready Windows entry:
+`C:\Users\Bane\Downloads\BaneWfn-workbench-20261015\banewfn.exe`.
+Windows result retained at
+`C:\Users\Bane\AppData\Local\Temp\banewfn-workbench-gui-1792067322171\benzene_workflows\workflow-1792067331252-2`.
+The temporary `build-win` test runtime and artifact download are removed after
+acceptance. The main `build` tree and its existing toolchain/sysroot are retained
+for incremental builds (about 5 GB); the Rust integration cache is about 839 MB.

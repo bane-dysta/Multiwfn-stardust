@@ -1,3 +1,17 @@
+export type WorkflowCube = {
+  file: string
+  kind: 'density' | 'esp' | 'elf' | 'lol' | 'hole' | 'electron' | 'orbital' | 'generic'
+  unit: 'au' | 'kcal/mol' | null
+  unitDeclared?: boolean
+  orbital: string | null
+  density?: string | null
+}
+export const workflow_cube_label = (cube: WorkflowCube): string => ({
+  density: 'Electron density', esp: 'Electrostatic potential', elf: 'Electron localization function',
+  lol: 'Localized orbital locator', hole: 'Hole density', electron: 'Electron distribution',
+  orbital: cube.orbital || 'Orbital', generic: 'Cube volume',
+})[cube.kind]
+
 export type WorkflowJob = {
   directory: string
   state: 'running' | 'cancelling' | 'cancelled' | 'prepared' | 'completed' | 'failed'
@@ -5,6 +19,7 @@ export type WorkflowJob = {
   message: string
   log: string
   files: string[]
+  cubes?: WorkflowCube[]
 }
 export type WorkflowStatus = {
   session?: { pid: number; revision: number } | null
@@ -58,6 +73,9 @@ export const parse_workflow_status = (value: unknown): WorkflowStatus => {
     || typeof status.job.directory !== 'string' || typeof status.job.log !== 'string'
     || typeof status.job.message !== 'string' || !Array.isArray(status.job.files)
     || status.job.files.some((file) => typeof file !== 'string')
+    || (status.job.cubes !== undefined && (!Array.isArray(status.job.cubes) || status.job.cubes.some(cube =>
+      !cube || typeof cube.file !== 'string' || !['density', 'esp', 'elf', 'lol', 'hole', 'electron', 'orbital', 'generic'].includes(cube.kind)
+      || ![null, 'au', 'kcal/mol'].includes(cube.unit))))
     || (status.job.exitCode !== null && !Number.isInteger(status.job.exitCode)))) {
     throw new Error('Invalid workflow job')
   }
@@ -88,6 +106,7 @@ export const create_workflow_client = (
     return response.json()
   }
   return {
+    openResult: async (directory: string, file: string, unit?: string): Promise<void> => { await call('open-result', { directory, file, unit }) },
     status: async () => parse_workflow_status(await call('status')),
     pick: async (kind: WorkflowSelection) => parse_workflow_status(await call('pick', { kind })),
     cancel: async () => parse_workflow_status(await call('cancel', {})),

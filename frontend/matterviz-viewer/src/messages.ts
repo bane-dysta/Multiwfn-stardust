@@ -1,5 +1,15 @@
 /** Application-owned UI text. Keep scientific data, identifiers and user labels unchanged. */
 export const zh = {
+  'Electron localization function': '电子定域函数',
+  'Localized orbital locator': '定域轨道指示函数',
+  'Hole density': '空穴密度',
+  'Electron distribution': '电子分布',
+  'Cube volume': 'Cube 体数据',
+  'ESP data unit': '静电势数据单位',
+  'Choose unit': '选择单位',
+  'Open in Multiwfn viewer': '在 Multiwfn 渲染界面打开',
+  'Render': '渲染',
+  'ESP needs one matching _den Cube in the same folder': '需要同目录下唯一的同名前缀 _den Cube 文件',
   'Choose file': '选择文件',
   'Reset parameter': '恢复脚本参数',
   'This script has no configurable parameters.': '此脚本没有可配置参数。',
