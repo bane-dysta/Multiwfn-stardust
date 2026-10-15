@@ -1,5 +1,56 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Bundled recipe library and BaneWfn icon — 2026-10-16
+
+Continues snapshot 438267a2292bc2283369202c80f2c6ded6dbfcdf; cumulative baseline
+remains ea0befc3aad728bdd61ede9b45a68725df490f5d. Imported all 24 .bwc recipes
+from /home/bane/smokes/banewfn/scripts/bwc (canonical HEAD 05dcdbf), preserving
+its existing uncommitted work. The default library now has 26 scripts including
+the prior density/Mayer examples, organized by the original category folders.
+Inline scientific configurations/defaults are retained; only their GUI metadata
+is copied from the existing vendored annotations. Adaptations quote filenames,
+retain VMD/vcube helpers without auto-launch, repair the spin heredoc and duplicate
+image moves, expose CP/fragment inputs, export plane plots without terminal wait,
+and attach NICS postprocessing to the task that owns its native stdout. ESP
+recipes keep the terminal _esp suffix and mark their existing kcal/mol units.
+No canonical BaneWfn file or Multiwfn scientific source was changed.
+
+Copied the original BaneWfn ICO and extracted its unmodified embedded PNG.
+The workbench header and native window use this icon, the Windows launcher embeds
+it, Linux installs its own icon, and the macOS workbench bundle builds BaneWfn.icns.
+The shared MatterViz icon remains available for the original application. Windows
+taskbar/Alt+Tab use the native window-owned icon via WM_SETICON ICON_BIG; Tao's
+default window icon sets ICON_SMALL only. Added the corresponding windows-sys
+feature without a new dependency or runtime DLL.
+
+Validation: Svelte 0 errors / 0 warnings and production frontend build passed;
+Linux and Windows Rust release builds passed; cargo fmt passed. Browser workbench
+acceptance passed, including real icon loading, full width, 30/70 columns,
+language switching and results operations. All 26 recipes inspect and dry-run on
+Linux and Windows with required example values. Linux expanded Bash blocks pass
+syntax checks; fixture postprocessing was exercised without numerical analysis,
+including the repaired NICS follow-up. Linux desktop-entry tests 4/4, macOS bundle
+contracts 8/8, native config validation and package/shell/XYZ-I/O tests passed.
+macOS interactive packaging and CI were not run in this task.
+
+Windows native acceptance opened the new default 26-script library, selected
+ELF/elf_cubonly.bwc through its translated grid dropdown, and completed benzene
+ELF export using one core and a Chinese/spaced filename. The result is classified
+as ELF; its Cube atom/grid/value count and finite range were checked. Extracted
+launcher/window icons were visually checked; native ICON_BIG and header checks
+passed after the taskbar fix. This is a focused smoke check, not numerical
+validation of every recipe; other workflows still require suitable scientific
+inputs, with NICS generating Gaussian inputs rather than running Gaussian.
+Evidence: build/library-icons/; its native replay helper uses an isolated profile.
+
+Ready Windows entry:
+`C:\Users\Bane\Downloads\BaneWfn-GUI-library-icon-20261016\banewfn_gui.exe`.
+Fresh ~101 MB package, inventory local-library-icon-20261016, 105 files verified.
+The scientific executable is byte-identical to the prior package. Linux entry:
+`/home/bane/smokes/Multiwfn-stardust/build/banewfn_gui`.
+The existing build trees are reused; small evidence and the successful ELF case
+are retained, while isolated browser profiles/preview caches are cleaned.
+
 ## Full-width standalone startup layout — 2026-10-16
 
 Continues snapshot 40e0d532d113eddbe98e3fff542162c05bfd6e14; cumulative baseline

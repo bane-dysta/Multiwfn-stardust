@@ -37,6 +37,7 @@ try {
   await page.goto(`${process.env.PREVIEW_URL || 'http://127.0.0.1:5205/'}?workbench=1&cap=test-capability`)
   const panel = page.getByRole('main', {name: 'BaneWfn', exact: true})
   await panel.getByLabel('网格精度', {exact:true}).waitFor()
+  assert.ok(await panel.locator('img.workflow-mark').evaluate(img => img.complete && img.naturalWidth > 0), 'BaneWfn icon must load')
   for (const width of [900, 1200, 1920]) {
     await page.setViewportSize({width, height: 820})
     const bounds = await panel.boundingBox()

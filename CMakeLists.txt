@@ -237,6 +237,8 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
   if(WIN32)
     add_executable(Multiwfn WIN32 tools/windows/workflow_launcher.c)
     add_executable(banewfn_gui WIN32 tools/windows/workflow_launcher.c)
+    target_sources(banewfn_gui PRIVATE tools/windows/banewfn.rc)
+    target_include_directories(banewfn_gui PRIVATE frontend/workflows/icons)
     target_compile_definitions(banewfn_gui PRIVATE BANEWFN_ENTRY=1)
     target_link_libraries(banewfn_gui PRIVATE user32)
     install(TARGETS banewfn_gui RUNTIME DESTINATION bin COMPONENT workflows)
@@ -258,6 +260,8 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
       "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh" COPYONLY)
     configure_file(frontend/matterviz-desktop/icons/icon.png
       "${CMAKE_CURRENT_BINARY_DIR}/resources/multiwfn.png" COPYONLY)
+    configure_file(frontend/workflows/icons/banewfn.png
+      "${CMAKE_CURRENT_BINARY_DIR}/resources/banewfn.png" COPYONLY)
     file(CHMOD "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh"
       PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
     add_custom_target(multiwfn_linux_desktop ALL
@@ -270,6 +274,8 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
       DESTINATION bin COMPONENT workflows)
     install(FILES frontend/matterviz-desktop/icons/icon.png
       DESTINATION bin/resources RENAME multiwfn.png COMPONENT workflows)
+    install(FILES frontend/workflows/icons/banewfn.png
+      DESTINATION bin/resources COMPONENT workflows)
   endif()
   configure_file(tools/run-workflows-gui "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui" COPYONLY)
   file(CHMOD "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui"

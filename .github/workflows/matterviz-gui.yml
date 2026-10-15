@@ -345,7 +345,8 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then
             cp build-matterviz-package/Multiwfn build-matterviz-package/banewfn_gui build-matterviz-package/run-workflows-gui \
               build-matterviz-package/install-desktop-entry.sh "package/$pkg/"
-            cp build-matterviz-package/resources/multiwfn.png "package/$pkg/resources/"
+            cp build-matterviz-package/resources/multiwfn.png \
+              build-matterviz-package/resources/banewfn.png "package/$pkg/resources/"
             cp build-matterviz-package/resources/tools/matterviz-file-dialog "package/$pkg/resources/tools/"
           fi
           cp docs/workflows.md "package/$pkg/README-Workflows.md"

@@ -51,7 +51,9 @@ mv -f -- "$entry" "$output_dir/Multiwfn-Workflows.desktop"
 trap - EXIT
 printf 'Application entry: %s/Multiwfn-Workflows.desktop\n' "$output_dir"
 if [[ -x "$app_root/banewfn_gui" ]]; then
+  [[ -f "$app_root/resources/banewfn.png" ]] || { echo 'Missing BaneWfn icon' >&2; exit 1; }
   workflow_exec="${exec_path%Multiwfn}banewfn_gui"
+  workflow_icon="${app_root//\\/\\\\}/resources/banewfn.png"
   cat > "$output_dir/BaneWfn.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -60,7 +62,7 @@ Name=BaneWfn GUI
 Comment=Configure and run wavefunction analysis workflows
 Comment[zh_CN]=配置与运行波函数分析工作流
 Exec=env "$workflow_exec" %f
-Icon=$icon_path
+Icon=$workflow_icon
 Terminal=false
 Categories=Education;Science;Chemistry;
 StartupNotify=false

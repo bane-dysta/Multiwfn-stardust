@@ -3,6 +3,7 @@
 Only XYZ I/O is executed; density and Mayer recipes are rendered in dry-run mode.
 """
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -44,6 +45,29 @@ def check(root):
         generated = "\n".join(p.read_text() for p in work.glob("*.txt"))
         assert "9\n1\ny\n0\nq" in generated, generated
         assert "5\n1\n" in generated, generated
+        # Exercise every bundled recipe through the same inspection/override
+        # and native-input generation interfaces used by the workbench.
+        values = {"plane": "1,2,3", "state": "1", "frag1": "1", "frag2": "2",
+                  "ring": "1,2,3", "cp": "1", "fragdef": "fragdef.txt"}
+        for recipe in sorted((library / "scripts").rglob("*")):
+            if recipe.suffix not in (".bw", ".bwc"):
+                continue
+            args = [str(runner), "--inspect-json", str(recipe), "--conf-dir",
+                    str(library / "conf"), "--wfn", str(startup)]
+            inspected = subprocess.run(args, cwd=work, capture_output=True,
+                                       text=True, encoding="utf-8", timeout=15)
+            assert inspected.returncode == 0, inspected.stdout + inspected.stderr
+            model = json.loads(inspected.stdout)
+            overrides = {field["id"]: values[field["name"]]
+                         for field in model["fields"] if field["value"] == "?"}
+            params = work / "library-parameters.json"
+            params.write_text(json.dumps(overrides), encoding="utf-8")
+            resolved = subprocess.run(args + ["--parameters-json", str(params)],
+                                      cwd=work, capture_output=True, text=True,
+                                      encoding="utf-8", timeout=15)
+            assert resolved.returncode == 0, resolved.stdout + resolved.stderr
+            assert json.loads(resolved.stdout)["runnable"], (recipe, resolved.stdout)
+            run(recipe, "--dryrun", "--parameters-json", str(params))
         script = work / "export.bw"
         script.write_text("%raw\nxyz\nexported.xyz\nq\nend\n", encoding="utf-8")
         run(script)

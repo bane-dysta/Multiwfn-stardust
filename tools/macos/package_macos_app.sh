@@ -228,6 +228,10 @@ if [[ -n "$WORKFLOW_RUNNER" ]]; then
   rm -rf "$WORKBENCH_BUNDLE"
   cp -R "$APP_BUNDLE" "$WORKBENCH_BUNDLE"
   touch "$WORKBENCH_BUNDLE/Contents/Resources/banewfn-workbench"
+  bash "$SCRIPT_DIR/build_macos_icon.sh" \
+    "$ROOT_DIR/frontend/workflows/icons/banewfn.png" \
+    "$WORKBENCH_BUNDLE/Contents/Resources/BaneWfn.icns"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile BaneWfn' "$WORKBENCH_BUNDLE/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c 'Set :CFBundleName BaneWfn GUI' "$WORKBENCH_BUNDLE/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName BaneWfn GUI' "$WORKBENCH_BUNDLE/Contents/Info.plist" || \
     /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string BaneWfn GUI' "$WORKBENCH_BUNDLE/Contents/Info.plist"

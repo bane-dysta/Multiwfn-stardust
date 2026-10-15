@@ -9,6 +9,15 @@ GUI annotations, JSON inspection and scoped parameter overrides are synchronized
 from the 1.6.0rc1 worktree based on `05dcdbf970e8510ffd410f26568e1ec63f8352ce`.
 Their canonical implementation is maintained in the BaneWfn repository.
 
+The script library under `scripts/` and the original moth icon under `icons/`
+also come from that BaneWfn repository. The ICO is copied unchanged; the PNG is
+its original embedded image. The GUI script copies retain their inline menu
+sequences and scientific defaults. Local adaptations quote paths, expose terminal
+inputs as parameters, export plane plots without waiting, repair shell delimiters
+and duplicate moves, and leave VMD/vcube helper files available without launching
+VMD automatically. ESP recipes keep vcube's final `_esp` suffix and declare their
+existing kcal/mol values with `_kcal_esp`. Inline conf receives GUI metadata only.
+
 BaneWfn material retains its Apache License 2.0 in `banewfn/LICENSE`. The
 surrounding Multiwfn repository retains its own `LICENSE.txt` and attribution
 requirements. Include both licenses when distributing the optional runner.

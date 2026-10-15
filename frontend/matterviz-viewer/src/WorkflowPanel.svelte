@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
-  import { Workflow, FolderOpen, FileCode2, FileText, Play, Square, Check, Terminal, Cpu, SlidersHorizontal } from '@lucide/svelte'
+  import { FolderOpen, FileCode2, FileText, Play, Square, Check, Terminal, Cpu, SlidersHorizontal } from '@lucide/svelte'
+  import banewfnIcon from '../../workflows/icons/banewfn.png'
   import * as Tabs from '$lib/components/ui/tabs'
   import { t, locale, set_locale } from './i18n'
   import { create_workflow_client, workflow_active, workflow_variables, workflow_cube_label, display_path, type WorkflowCube, type WorkflowStatus, type WorkflowSelection, type WorkflowInspection, type WorkflowField } from './workflows'
@@ -142,7 +143,7 @@
 
   <main class="workflow-panel" aria-labelledby="workflow-heading">
     <header class="workflow-header">
-      <div class="workflow-title"><span class="workflow-mark"><Workflow size={20} /></span><h2 id="workflow-heading">BaneWfn</h2></div>
+      <div class="workflow-title"><img class="workflow-mark" src={banewfnIcon} alt="" /><h2 id="workflow-heading">BaneWfn</h2></div>
       <button type="button" onclick={() => set_locale($locale === 'zh' ? 'en' : 'zh')}>{$locale === 'zh' ? 'English' : '中文'}</button>
     </header>
     {#if error}<p class="workflow-error workflow-banner" role="alert">{$t(error)}</p>{/if}
@@ -304,7 +305,7 @@
   .workflow-panel { display: flex; flex-direction: column; position: fixed; inset: 0; margin: 0; padding: 0; width: 100%; max-width: none; height: 100dvh; overflow: hidden; background: var(--ui-background); color: var(--ui-foreground); font-size: 13px; }
   .workflow-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 18px 24px; border-bottom: 1px solid var(--ui-border); }
   .workflow-title { display: flex; align-items: center; gap: 12px; }
-  .workflow-mark { display: grid; place-items: center; width: 36px; height: 36px; background: var(--ui-accent); color: var(--ui-primary); border-radius: 10px; }
+  .workflow-mark { width: 40px; height: 40px; object-fit: contain; border-radius: 7px; }
   h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
   h3 { margin: 0; font-size: 14px; font-weight: 600; }
   button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; height: auto; padding: 7px 12px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-background); color: var(--ui-foreground); font: inherit; cursor: pointer; }

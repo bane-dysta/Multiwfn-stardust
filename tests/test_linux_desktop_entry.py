@@ -30,6 +30,7 @@ class LinuxDesktopEntryTests(unittest.TestCase):
         tools = self.app / "resources/tools"
         tools.mkdir(parents=True)
         shutil.copy2(ROOT / "frontend/matterviz-desktop/icons/icon.png", self.app / "resources/multiwfn.png")
+        shutil.copy2(ROOT / "frontend/workflows/icons/banewfn.png", self.app / "resources/banewfn.png")
         host = tools / "matterviz-desktop"
         host.write_text('#!/bin/sh\nprintf "%s\\0" "$@" > "$MULTIWFN_TEST_CAPTURE"\nexit 17\n')
         host.chmod(0o755)
@@ -78,6 +79,7 @@ class LinuxDesktopEntryTests(unittest.TestCase):
         subprocess.run([str(self.app / "install-desktop-entry.sh")], env=self.env, check=True, capture_output=True)
         entry = Path(self.env["XDG_DATA_HOME"]) / "applications/BaneWfn.desktop"
         self.assertIn("banewfn_gui", entry.read_text())
+        self.assertIn("/resources/banewfn.png", entry.read_text())
         self.capture.unlink()
         result = subprocess.run(["gio", "launch", str(entry), str(startup)], env=self.env, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)

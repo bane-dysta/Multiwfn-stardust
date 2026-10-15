@@ -145,16 +145,35 @@ fn launch_workbench() -> ExitCode {
         )?;
         let page = Url::parse(&service.url).map_err(|e| e.to_string())?;
         eprintln!("BaneWfn workbench: {}", service.url);
+        let mut context = desktop_context();
+        context.set_default_window_icon(Some(tauri::include_image!(
+            "../workflows/icons/banewfn.png"
+        )));
         let result = tauri::Builder::default()
             .setup(move |app| {
-                WebviewWindowBuilder::new(app, "main", WebviewUrl::External(page))
+                let _window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(page))
                     .title("BaneWfn")
                     .inner_size(1200.0, 820.0)
                     .min_inner_size(900.0, 600.0)
                     .build()?;
+                #[cfg(windows)]
+                {
+                    // Tao sets the title-bar icon; Windows uses ICON_BIG for
+                    // the taskbar and Alt+Tab. Both borrow the window-owned icon.
+                    use windows_sys::Win32::UI::WindowsAndMessaging::{
+                        SendMessageW, ICON_BIG, ICON_SMALL, WM_GETICON, WM_SETICON,
+                    };
+                    let hwnd = _window.hwnd()?.0 as _;
+                    unsafe {
+                        let icon = SendMessageW(hwnd, WM_GETICON, ICON_SMALL as usize, 0);
+                        if icon != 0 {
+                            SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icon);
+                        }
+                    }
+                }
                 Ok(())
             })
-            .build(desktop_context())
+            .build(context)
             .map(|app| {
                 app.run_return(|_, _| {});
             });
