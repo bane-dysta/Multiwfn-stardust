@@ -1,5 +1,46 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Cube rendering responsiveness — 2026-10-16
+
+Continues accepted snapshot f1bcc80bf7603241a00cd4efcdd1742a16dda107;
+cumulative baseline remains ea0befc3aad728bdd61ede9b45a68725df490f5d.
+Changed App.svelte's volume dataset store to `$state.raw`: datasets are already
+replaced wholesale on load/append/remove, and the renderer must read grid metadata
+without millions of deep reactive-proxy accesses during per-voxel processing.
+No changes to Multiwfn scientific sources, Cube values, presets or renderer math.
+
+The user's real example is workflow-1792082017295-5 under
+D:\chemprog\Multiwfn_2026.9.20_bin_Win64\examples\excit\4-nitroaniline_workflows.
+Its two 7,580,551-byte electron/hole Cubes each contain 528,660 points. Reused these
+outputs, without rerunning the scientific calculation. Windows native root-entry
+-> workbench -> One-click render completed both surface workers at 6303 ms before
+and 843 ms after this change (single-run observations, not a universal benchmark).
+Both runs produced identical initial vertex counts, 7918 and 4316. The updated
+viewer generated new geometry after changing the isovalue and hid the selected
+electron layer. Also checked the ordinary Windows WebView profile through native
+UI Automation and captured the actual two visible surfaces, not just file labels.
+The reported persistent non-display beyond ten seconds was not reproduced in the
+isolated profile; the concrete reproduced and fixed fault is main-thread blocking.
+
+Validation: frontend svelte-check 0 errors / 0 warnings, production build passed;
+frontend suite 300 passed / 1 skipped. New browser workflow-results.mjs uses two
+synthetic 72^3 fields, checks actual scene meshes, geometry replacement, hide/show,
+and a main-thread long-task bound; passed with longest task 144 ms. It requires
+the existing Vite preview and PLAYWRIGHT_MODULE / PLAYWRIGHT_BROWSERS_PATH; run:
+`node frontend/matterviz-viewer/tests/browser/workflow-results.mjs`.
+Evidence and replay helpers are under build/render-freeze-repro and build/.
+No Rust/Fortran changes; CI was not rerun for this frontend-only correction.
+
+Ready Windows entry:
+`C:\Users\Bane\Downloads\BaneWfn-GUI-render-fix-20261016\banewfn_gui.exe`.
+Fresh directory: native binaries unchanged from CI artifact 11985043158; frontend
+built locally from this tree. Local inventory tag local-render-fix-20261016,
+78 files verified. Existing user packages and custom scripts preserved. Ready
+Linux build/banewfn_gui uses the same new assets in build/resources/frontend/.
+New Windows package ~88 MB retained for testing. Temporary Cube copies, browser
+profile and preview server are cleaned after evidence collection. Original Cube
+files remain at their supplied path; no new quantum calculation or source clone.
+
 ## Batch result rendering — 2026-10-15 (accepted)
 
 Continues `b8b01189e78c5d79b665b93aba28300acc4627b5`; cumulative baseline ea0befc.

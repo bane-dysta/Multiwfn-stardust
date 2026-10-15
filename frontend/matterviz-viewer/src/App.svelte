@@ -153,7 +153,10 @@
   })
   let displayedStructure = $state<AnyStructure | undefined>()
   let bondEdits = $state<RepBondEdits>({ added: [], removed: [], overrides: [] })
-  let volumetricData = $state<VolumetricData[] | undefined>()
+  // Volume datasets are replaced as a whole. Deep proxies make the renderer's
+  // per-voxel reads run through reactive getters millions of times on the UI
+  // thread, delaying both surface generation and Cube controls.
+  let volumetricData = $state.raw<VolumetricData[] | undefined>()
   let volumeEntries = $state<ManifestEntry[]>([])
   let isosurfaceSettings = $state<IsosurfaceSettings>({ ...DEFAULT_ISOSURFACE_SETTINGS })
   let activeVolumeIdx = $state(0)
