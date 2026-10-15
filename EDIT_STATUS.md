@@ -1,6 +1,6 @@
 # BaneWfn workflow integration — 2026-10-06
 
-## Batch result rendering — 2026-10-15 (in verification)
+## Batch result rendering — 2026-10-15 (accepted)
 
 Continues `b8b01189e78c5d79b665b93aba28300acc4627b5`; cumulative baseline ea0befc.
 Result Cube rows now support selection and Render selected; One-click render
@@ -13,10 +13,43 @@ are written only after all requested files validate. Original results are intact
 The existing single-result API remains compatible. Declared ESP lookup now
 honors explicit mapping paths in a multi-dataset scene.
 
-Linux GUI build and browser workbench selection/language checks passed; Rust
-151 tests and clippy passed (two opt-in live tests ignored). Native multi-Cube
-rendering and Windows package verification are in progress. Active main/index
-are preserved; new CI snapshots use private indexes. No scientific core edits.
+Validation: incremental Linux GUI build (`bash tools/build_workflows_gui.sh`)
+and browser workbench selection/all/clear/language checks passed. Rust 151 tests
+and clippy passed (two opt-in live tests ignored); both Rust fmt checks passed.
+Frontend 300 passed / 1 skipped with `node --test --test-concurrency=4`. The first
+sandboxed default-concurrency invocation reported three failed test files without
+details; the complete rerun above passed on identical source. Logs:
+build/batch-render-{build,rust,frontend2}.log; UI screenshots: build/batch-render-ui/.
+Real Linux workbench -> one result window -> WebGL displayed two independent
+ESP mappings and a signed orbital (five volume entries); source Cubes unchanged.
+This uses synthetic fields and single-atom XYZ I/O, not a quantum calculation.
+
+CI: https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38757254521
+at `f8834877421dfec64ed0db3047e9a09662ddcea7`, branch
+`ci/banewfn-batch-render-20261015`: frontend/Rust and all three platform package
+jobs passed, including the preceding Git Bash fix's native shell tests.
+Signing/publication skipped. Windows artifact 11985043158, 27506663 bytes,
+SHA256 `7c3422db21e903e28d7bf7c5e7c167b37c958d62f125183b7974202f17cac41b`.
+Downloaded hash and inner/outer ZIP CRCs verified before extraction.
+
+Windows native UI Automation confirmed a single MatterViz window with the batch,
+ESP legend and orbital. Five distinct manifest paths retain both ESP mappings;
+normal parent close preserves the viewer, whose exit 0 removes its scratch folder.
+Log: build/batch-render-windows-native.log. Successful case:
+`C:\Users\Bane\AppData\Local\Temp\banewfn-batch-render-1792078502578`.
+macOS package CI passed; macOS interactive windows were not manually tested.
+
+Ready Windows entry:
+`C:\Users\Bane\Downloads\BaneWfn-GUI-batch-render-20261015\banewfn_gui.exe`.
+Ready Linux entry: `/home/bane/smokes/Multiwfn-stardust/build/banewfn_gui`.
+New Windows package ~88 MB retained for use; old user trial packages untouched.
+Verified 27 MB download and range fragments removed, preview server stopped.
+Keep the ~888 KB Linux synthetic case and ~380 KB screenshots for acceptance.
+Existing build caches remain for incremental work; no new full source copies.
+All 68 protected scientific files match baseline. Active main/index are preserved.
+Delivery: artifacts/2026-10-15/deliveries/banewfn-batch-render/, one cumulative
+patch against ea0befc, checked in a temporary baseline index and matched to its
+recorded tree. Final documentation-only snapshot follows the tested CI commit.
 
 ## Windows Bash shebang dispatch — 2026-10-15 (accepted)
 
