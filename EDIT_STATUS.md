@@ -1,6 +1,6 @@
 # BaneWfn workflow integration — 2026-10-06
 
-## Cube result viewer and banewfn_gui entry — 2026-10-15 (verification)
+## Cube result viewer and banewfn_gui entry — 2026-10-15 (accepted)
 
 Continues the accepted workbench tree `74bb401b950aa9e183b6b92b64caefd5dd565bf2`;
 cumulative baseline remains `ea0befc3aad728bdd61ede9b45a68725df490f5d`.
@@ -25,7 +25,45 @@ The native close test exposed Tauri Builder::run bypassing Rust destructors;
 the event loop now uses run_return so service/scratch cleanup runs. Native Linux
 revalidation passed: real result API, Cube loading, ESP colors/legend, Return,
 scratch removal and unchanged source data. All 68 protected source files match
-baseline. Cross-platform CI is in progress on `ci/banewfn-result-view-20261015`.
+baseline.
+
+Final CI: https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38743248882
+at `60e06c305ba8cdf9c9e2f8836df39f99f5f57af8` on
+`ci/banewfn-result-view-final-20261015`: all four frontend/Rust and platform
+package jobs passed; signing/publication skipped. The preceding run
+`38741066035` failed only the integration crate's module-order formatting check;
+its three package jobs passed. The final commit only reorders those declarations.
+Both desktop and integration crate formatting checks now pass locally as well.
+
+Windows native acceptance used artifact `11976660998` from the preceding run
+(same application sources; only test formatting differs), SHA256
+`42bf7d84f9cdd522c93273a9bf25d248cd7aca63d994e75e824d435fb830b6e5`.
+Actual WebView UI Automation observed the ESP file/legend (kcal/mol/e, ±16.0
+for the synthetic field) and orbital layer. The orbital manifest declares signed
+surfaces. Both windows survive closing the workbench, then close with exit 0
+and remove their temporary view sessions. The exact root `banewfn_gui.exe`
+entry also opens and closes normally. Log: `build/result-view-native-windows2.log`.
+The first Windows probe incorrectly waited for an old ready flag; final validation
+reads the native UI instead. Mac interactive windows were not manually tested.
+
+Ready Windows package:
+`C:\Users\Bane\Downloads\BaneWfn-GUI-resultview-20261015\banewfn_gui.exe`.
+Successful Windows probe and UI text:
+`C:\Users\Bane\AppData\Local\Temp\banewfn-result-gui-1792071921971`.
+Ready Linux entry: `/home/bane/smokes/Multiwfn-stardust/build/banewfn_gui`.
+Original Multiwfn entry also passed native readiness/Return/exit-0/engine-reap
+validation (PID 236578). Canonical BaneWfn CLI and all 68 protected scientific
+files are unchanged. The active worktree's original branch/index are preserved.
+
+Delivery: `artifacts/2026-10-15/deliveries/banewfn-result-view/`, one cumulative
+Git patch against `ea0befc`, checked in a separate baseline index. No second
+source tree or source archive is needed. Failed synthetic probe directories,
+download fragments, the verified 27.5 MB ZIP and obsolete `build/banewfn` were
+removed; the preview server was stopped. Keep the ready Windows package (~92 MB),
+successful synthetic probes (~1 MB each), screenshots/logs, and existing build
+toolchain caches for use and incremental builds. Native Rust cache is ~1.3 GB,
+sysroot 558 MB, tooling 2.1 GB and headless Rust cache 847 MB; remove build caches
+only when incremental development is no longer needed.
 
 The existing ESP display helpers also needed support for MatterViz's flat grid
 buffers. Both storage orders now match the legacy nested-grid range/extrema
