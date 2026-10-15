@@ -54,8 +54,6 @@ export const zh = {
   'Install the optional workflow runner to use this panel.': '请安装可选的工作流执行器后使用此面板。',
   'running': '运行中',
   'cancelling': '正在取消',
-  'Close session': '关闭会话',
-  'Closing session...': '正在关闭会话…',
   'cancelled': '已取消',
   'prepared': '预检完成',
   'completed': '运行完成',
