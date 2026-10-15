@@ -19,10 +19,13 @@ own fields, including repeated steps. Conf authors describe fields with comments
 
 ```ini
 #@gui grid
-# label = 网格精度
+# label.zh = 网格精度
+# label.en = Grid quality
 # type = select
-# options = 1:低精度 | 2:中等精度 | 3:高精度
-# help = 控制生成三维网格的精细程度
+# options.zh = 1:低精度 | 2:中等精度 | 3:高精度
+# options.en = 1:Low | 2:Medium | 3:High
+# help.zh = 控制生成三维网格的精细程度
+# help.en = Controls the resolution of the generated 3D grid
 #@end
 ```
 
@@ -31,6 +34,10 @@ override individual properties. Types are `text`, `number`, `select`, `boolean`,
 `file` and `directory`. Boolean fields declare exactly two value/label pairs.
 `unit` adds a displayed unit. Defaults come from the script and conf, not the
 annotation. Unannotated fields use their variable names and text inputs.
+Labels, hover explanations and option captions follow the interface language.
+Use `.zh` and `.en` suffixes for translations; plain `label`, `help` and `options`
+provide fallback text. All translated option lists must use the same actual
+values. Switching language preserves parameter values and selections.
 Hover over labels for explanations. Reset removes a field override. Additional
 variables remain available in a collapsed editor. This version edits parameters
 of existing scripts, not their step sequence.

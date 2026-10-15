@@ -173,12 +173,12 @@
                   <legend>{group}</legend>
                   {#each inspection?.fields.filter(field => field.group === group) ?? [] as field (field.id)}
                     <div class="parameter-row">
-                      <label for={'parameter-' + field.id} title={field.help}>{field.label}{#if field.unit} ({field.unit}){/if}</label>
+                      <label for={'parameter-' + field.id} title={field.helps?.[$locale] ?? field.help}>{field.labels?.[$locale] ?? field.label}{#if field.unit} ({field.unit}){/if}</label>
                       <div class="parameter-control">
                         {#if field.type === 'select' || field.type === 'boolean'}
                           <select id={'parameter-' + field.id} value={parameters[field.id] ?? field.value} onchange={event => change(field, event.currentTarget.value)}>
                             {#if !field.options.some(option => option.value === (parameters[field.id] ?? field.value))}<option value={parameters[field.id] ?? field.value}>{parameters[field.id] ?? field.value}</option>{/if}
-                            {#each field.options as option}<option value={option.value}>{option.label}</option>{/each}
+                            {#each field.options as option}<option value={option.value}>{option.labels?.[$locale] ?? option.label}</option>{/each}
                           </select>
                         {:else}
                           <input id={'parameter-' + field.id} type={field.type === 'number' ? 'number' : 'text'} step="any" value={parameters[field.id] ?? field.value} oninput={event => change(field, event.currentTarget.value)} />

@@ -601,3 +601,47 @@ To use all new behavior in a desktop package, rebuild the native host and GUI
 adapter as well as updating frontend assets. New cumulative/incremental patches,
 source, frontend assets, screenshots and validation notes are delivered in
 `artifacts/2026-10-07/deliveries/multiwfn-workflows-startup/`.
+
+## Independent BaneWfn workbench — 2026-10-15
+
+Cumulative baseline: `ea0befc3aad728bdd61ede9b45a68725df490f5d`. Prior
+Windows path fixes were preserved from `e73c37f3ac576529424ec1e4de4645d35f7d2031`.
+The active worktree remains on its original branch; CI uses the independent
+`ci/banewfn-workbench-20261015` branch, created through a private Git index.
+
+`banewfn.exe`, Linux `banewfn`, and BaneWfn.app open a dedicated workbench with
+the existing Tauri/Svelte framework. No molecule or persistent Multiwfn session
+is required. Batch analysis uses the packaged engine. The original molecular
+viewer and the scientific sources are preserved. The workbench keeps a 30/70
+layout with Parameters, Script preview and Results tabs. Results follow the
+startup file until manually selected. Jobs retain scripts, effective conf,
+explicit parameter overrides, logs and outputs in separate directories.
+
+Canonical BaneWfn 1.6.0rc1 supplies conf-driven controls and nonexecuting JSON
+inspection. The vendored adapter retains its platform path quoting and session
+transport changes. Field names, hover help and dropdown captions use `.zh`/`.en`
+conf properties and follow the UI language without changing selected values.
+Unannotated fields retain their parameter keys. The GUI edits existing workflow
+parameters; it does not provide a step-sequence editor.
+
+Local verification:
+- Full GUI build: `bash tools/build_workflows_gui.sh`; Svelte 0 errors/warnings.
+- Canonical CTest 4/4; packaged sidecar CLI and workflow package checks passed.
+- Frontend suite: 298 passed, 1 skipped; headless production Rust: 145 passed.
+  Socket-dependent tests ran outside the sandbox. Rust clippy passed.
+- Browser workbench acceptance passed for layout, language switching, field
+  labels/help/options, retained values, independent repeated steps and preview.
+  Screenshots are in `build/workbench-ui/`; browser API responses are fixtures.
+- Actual standalone production service ran benzene Mayer analysis on Linux
+  and Windows with 1 core, both completed with valid bond-order output.
+  Logs: `build/workbench-live-linux.log`, `build/workbench-live-windows.log`.
+- Linux native entry opened an independent service without an initial file.
+  The native WebKit appearance was not separately verified.
+
+Linux entry: `/home/bane/smokes/Multiwfn-stardust/build/banewfn`.
+Canonical CLI: `/home/bane/smokes/banewfn/build/bin/banewfn`.
+`build-win` currently contains a test runtime and sidecar build, not a complete
+desktop package. Final cross-platform CI and native Windows package checks are
+still pending. The first macOS CI build exposed duplicate Tauri Info.plist
+symbols; both entry paths now share one context generator. BaneWfn.app also
+bypasses the original Cocoa file picker via its app marker.

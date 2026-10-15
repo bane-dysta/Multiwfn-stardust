@@ -57,3 +57,5 @@ Thumbs.db
 
 # Generated documentation
 *.pdf
+# Local Windows cross-build and trial package
+/build-win/

@@ -20,7 +20,8 @@ export type WorkflowStatus = {
 }
 export type WorkflowSelection = 'library' | 'results' | 'wavefunction'
 export type WorkflowRequest = { script: string; cores: number; variables: string[]; dryRun: boolean; parameters?: Record<string, string> }
-export type WorkflowField = { id: string; name: string; group: string; label: string; type: string; value: string; expression?: string; source: string; help?: string; unit?: string; options: Array<{ value: string; label: string }> }
+type WorkflowTranslations = Partial<Record<'zh' | 'en', string>>
+export type WorkflowField = { id: string; name: string; group: string; label: string; labels?: WorkflowTranslations; type: string; value: string; expression?: string; source: string; help?: string; helps?: WorkflowTranslations; unit?: string; options: Array<{ value: string; label: string; labels?: WorkflowTranslations }> }
 export type WorkflowInspection = { version: number; runnable: boolean; fields: WorkflowField[]; tasks: Array<{ task: number; module: string; commands: string }>; diagnostics: string[] }
 export const display_path = (path: string | null | undefined): string => {
   if (!path) return ''

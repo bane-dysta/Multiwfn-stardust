@@ -11,8 +11,13 @@ def check(executable):
         root = pathlib.Path(tmp)
         conf = '''#@gui grid
     # label = 网格精度
+    # label.zh = 网格精度
+    # label.en = Grid quality
+    # help.zh = 网格分辨率
+    # help.en = Grid resolution
     # type = select
-    # options = 1:低 | 2:中 | 3:高
+    # options.zh = 1:低 | 2:中 | 3:高
+    # options.en = 3:High | 1:Low | 2:Medium
     #@end
     [main]
     5
@@ -21,6 +26,8 @@ def check(executable):
 [spin] # section comment
     #@gui grid
     # label = 自旋网格
+    # label.zh = 自旋网格
+    # label.en = Spin grid
     #@end
     ${grid:-2}
     [quit]
@@ -44,6 +51,11 @@ def check(executable):
         assert [fields[f"0/{i}/grid"]["value"] for i in range(3)] == ["3", "3", "2"]
         assert fields["0/2/grid"]["label"] == "自旋网格"
         assert fields["0/2/grid"]["type"] == "select"
+        assert fields["0/0/grid"]["labels"] == {"zh": "网格精度", "en": "Grid quality"}
+        assert fields["0/2/grid"]["labels"]["en"] == "Spin grid"
+        assert fields["0/0/grid"]["helps"]["en"] == "Grid resolution"
+        opts = {o["value"]: o for o in fields["0/0/grid"]["options"]}
+        assert opts["1"]["labels"] == {"zh": "低", "en": "Low"}
         assert not (root / "side-effect").exists()
         code, modified = inspect({"0/0/grid": "1", "var/x": "2"})
         assert code == 0
@@ -68,6 +80,16 @@ def check(executable):
         assert inspect({"var/x": "2"})[1]["runnable"] is True
         (root / "grid.conf").write_text(conf.replace("# type = select", "# type = mystery"), encoding="utf-8")
         assert inspect()[1]["runnable"] is False
+        (root / "grid.conf").write_text(conf.replace("3:High", "4:High"), encoding="utf-8")
+        code, mismatch = inspect()
+        assert code != 0 or not mismatch["runnable"]
+        legacy = "\n".join(line for line in conf.splitlines() if not any(k in line for k in ["label.zh", "label.en", "help.zh", "help.en", "options.en"]))
+        (root / "grid.conf").write_text(legacy.replace("options.zh", "options"), encoding="utf-8")
+        code, legacy_result = inspect({"var/x": "2"})
+        assert code == 0 and legacy_result["runnable"]
+        legacy_fields = {f["id"]: f for f in legacy_result["fields"]}
+        assert legacy_fields["0/0/grid"]["label"] == "网格精度"
+        assert legacy_fields["0/0/grid"]["labels"] == {}
     print("GUI CLI: scoped fields, metadata, overrides, inline conf, side effects and dry-run parity passed")
 
 

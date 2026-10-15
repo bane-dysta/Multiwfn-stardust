@@ -110,6 +110,12 @@ fn main() -> ExitCode {
 }
 
 #[cfg(any(unix, windows))]
+fn desktop_context() -> tauri::Context<tauri::Wry> {
+    // macOS embeds a named Info.plist symbol: expand this macro only once.
+    tauri::generate_context!()
+}
+
+#[cfg(any(unix, windows))]
 fn launch_workbench() -> ExitCode {
     let result = (|| -> Result<(), String> {
         let executable = env::current_exe().map_err(|e| e.to_string())?;
@@ -144,7 +150,7 @@ fn launch_workbench() -> ExitCode {
                     .build()?;
                 Ok(())
             })
-            .run(tauri::generate_context!());
+            .run(desktop_context());
         service.shutdown();
         result.map_err(|e| e.to_string())
     })();
@@ -342,7 +348,7 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
                 }
             }
         })
-        .run(tauri::generate_context!());
+        .run(desktop_context());
 
     if let Err(error) = result {
         let message = format!("error while running MatterViz Desktop: {error}");

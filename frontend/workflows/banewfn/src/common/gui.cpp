@@ -107,6 +107,38 @@ static std::vector<std::pair<std::string,std::string>> choices(const std::string
     return out;
 }
 
+static std::string displayDefault(const Values& meta, const std::string& key, const std::string& fallback = "") {
+    for (const auto& suffix : {"", ".en", ".zh"}) {
+        auto it = meta.find(key + suffix);
+        if (it != meta.end()) return it->second;
+    }
+    return fallback;
+}
+
+static std::string translations(const Values& meta, const std::string& key) {
+    std::string out = "{";
+    for (const auto& lang : {"en", "zh"}) {
+        auto it = meta.find(key + "." + lang);
+        if (it == meta.end()) continue;
+        if (out.size() > 1) out += ",";
+        out += quote(lang) + ":" + quote(it->second);
+    }
+    return out + "}";
+}
+
+static void validateOptions(const Values& meta) {
+    const auto base = choices(displayDefault(meta, "options"));
+    std::set<std::string> values;
+    for (const auto& option : base) values.insert(option.first);
+    for (const auto& lang : {"en", "zh"}) {
+        auto it = meta.find(std::string("options.") + lang);
+        if (it == meta.end()) continue;
+        std::set<std::string> translated;
+        for (const auto& option : choices(it->second)) translated.insert(option.first);
+        if (translated != values) throw std::runtime_error("Translated options must have the same values");
+    }
+}
+
 void parseMetadata(const std::string& text, ModuleConfig& config) {
     std::istringstream in(text); std::string line, scope, name; Values metadata;
     size_t number = 0, start = 0;
@@ -125,9 +157,10 @@ void parseMetadata(const std::string& text, ModuleConfig& config) {
                 auto type = metadata.count("type") ? metadata.at("type") : "text";
                 if (!std::set<std::string>{"text","number","select","boolean","file","directory"}.count(type)) throw std::runtime_error("Unknown control type");
                 if (type == "select" || type == "boolean") {
-                    auto opts = choices(metadata["options"]);
+                    auto opts = choices(displayDefault(metadata,"options"));
                     if (opts.empty() || (type == "boolean" && opts.size()!=2)) throw std::runtime_error("select needs options; boolean needs exactly two options");
                 }
+                validateOptions(metadata);
                 if (config.gui[scope].count(name)) throw std::runtime_error("Duplicate GUI annotation in this scope");
                 config.gui[scope][name] = metadata;
             } catch (const std::exception& e) { error(e.what()); }
@@ -139,7 +172,7 @@ void parseMetadata(const std::string& text, ModuleConfig& config) {
                 line = Utils::trim(line.substr(1)); auto pos = line.find('=');
                 if (pos == std::string::npos) { error("Expected property = value"); continue; }
                 auto key = Utils::trim(line.substr(0,pos));
-                if (!std::set<std::string>{"label","help","type","options","unit"}.count(key)) error("Unknown GUI property: " + key);
+                if (!std::set<std::string>{"label","label.zh","label.en","help","help.zh","help.en","type","options","options.zh","options.en","unit"}.count(key)) error("Unknown GUI property: " + key);
                 else if (!metadata.emplace(key,Utils::trim(line.substr(pos+1))).second) error("Duplicate GUI property: " + key);
             }
         } else {
@@ -186,7 +219,7 @@ static void validate(const Values& meta, const std::string& value) {
         size_t end=0; double n=std::stod(value,&end);
         if (end!=value.size() || !std::isfinite(n)) throw std::runtime_error("Expected a finite number");
     } else if (it->second=="select" || it->second=="boolean") {
-        auto options=choices(meta.at("options"));
+        auto options=choices(displayDefault(meta,"options"));
         if (std::none_of(options.begin(),options.end(),[&](const auto& p){return p.first==value;})) throw std::runtime_error("Value is not in the declared options");
     }
 }
@@ -317,9 +350,20 @@ int inspect(int argc,char* argv[]) {
                         if(overrides.count(id)) source="override";
                         auto meta=metadata(*mod,name,p.first);
                         std::string f="{\"id\":"+quote(id)+",\"name\":"+quote(p.first)+",\"group\":"+quote(std::to_string(i+1)+" · "+task.moduleName+" / "+name+" ["+location+"]")+",\"value\":"+quote(value)+",\"source\":"+quote(source)+",\"expression\":"+quote(raw.count(p.first)?raw.at(p.first):p.second);
-                        f+=",\"label\":"+quote(meta.count("label")?meta["label"]:p.first)+",\"type\":"+quote(meta.count("type")?meta["type"]:"text")+",\"help\":"+quote(meta["help"])+",\"unit\":"+quote(meta["unit"])+",\"options\":[";
+                        validateOptions(meta);
+                        f+=",\"label\":"+quote(displayDefault(meta,"label",p.first))+",\"labels\":"+translations(meta,"label")+",\"type\":"+quote(meta.count("type")?meta["type"]:"text")+",\"help\":"+quote(displayDefault(meta,"help"))+",\"helps\":"+translations(meta,"help")+",\"unit\":"+quote(meta["unit"])+",\"options\":[";
                         bool first=true;
-                        if(meta.count("options")) for(const auto& option:choices(meta["options"])) {if(!first)f+=",";first=false;f+="{\"value\":"+quote(option.first)+",\"label\":"+quote(option.second)+"}";}
+                        for(const auto& option:choices(displayDefault(meta,"options"))) {
+                            if(!first)f+=",";
+                            first=false;
+                            Values labels;
+                            for (const auto& lang : {"en", "zh"}) {
+                                auto it=meta.find(std::string("options.")+lang);
+                                if(it!=meta.end()) for(const auto& translated:choices(it->second))
+                                    if(translated.first==option.first) labels[std::string("label.")+lang]=translated.second;
+                            }
+                            f+="{\"value\":"+quote(option.first)+",\"label\":"+quote(option.second)+",\"labels\":"+translations(labels,"label")+"}";
+                        }
                         fields.push_back(f+"]}");
                     }
                     auto generated=commands(sec,params); lines.insert(lines.end(),generated.begin(),generated.end());

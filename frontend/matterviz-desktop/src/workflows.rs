@@ -1158,7 +1158,7 @@ mod tests {
             assert!(Instant::now() < deadline);
             thread::sleep(Duration::from_millis(10));
         }
-        let pid: i32 = fs::read_to_string(pid_path)
+        let _pid: i32 = fs::read_to_string(pid_path)
             .unwrap()
             .trim()
             .parse()
@@ -1166,7 +1166,7 @@ mod tests {
         f.manager.cancel();
         assert_eq!(f.finish()["job"]["state"], "cancelled");
         #[cfg(target_os = "linux")]
-        if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
+        if let Ok(stat) = fs::read_to_string(format!("/proc/{_pid}/stat")) {
             assert_eq!(stat.split(") ").nth(1).unwrap().chars().next(), Some('Z'));
         }
         f.manager.start(&f.request()).unwrap();
