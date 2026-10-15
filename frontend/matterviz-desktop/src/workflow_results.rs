@@ -265,6 +265,9 @@ pub fn launch(plan: &Value, frontend: &Path) -> Result<Value, String> {
     command
         .arg("--workflow-result")
         .arg(frontend)
+        // This independent window must not report startup for its parent.
+        .env_remove("MULTIWFN_MATTERVIZ_STARTUP_STATUS")
+        .env_remove("MULTIWFN_MATTERVIZ_STARTUP_TOKEN")
         .stdin(Stdio::piped());
     #[cfg(windows)]
     {

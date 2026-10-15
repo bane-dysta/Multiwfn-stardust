@@ -22,8 +22,10 @@ Browser workbench checks verify the render request, unit selection and bilingual
 labels. Native Linux result opening and actual WebGL rendering passed using
 synthetic Cube fields and single-atom XYZ export (no electronic calculation).
 The native close test exposed Tauri Builder::run bypassing Rust destructors;
-the event loop now uses run_return so service/scratch cleanup runs. Revalidation
-of closing and cross-platform CI are in progress.
+the event loop now uses run_return so service/scratch cleanup runs. Native Linux
+revalidation passed: real result API, Cube loading, ESP colors/legend, Return,
+scratch removal and unchanged source data. All 68 protected source files match
+baseline. Cross-platform CI is in progress on `ci/banewfn-result-view-20261015`.
 
 The existing ESP display helpers also needed support for MatterViz's flat grid
 buffers. Both storage orders now match the legacy nested-grid range/extrema
