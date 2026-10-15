@@ -14,6 +14,7 @@ surrounding Multiwfn repository retains its own `LICENSE.txt` and attribution
 requirements. Include both licenses when distributing the optional runner.
 
 Local changes cover shell argument and configuration path quoting,
+Windows Bash shebang dispatch with Git for Windows discovery,
 rejecting interactive builtins, the desktop entry point and the optional portable
 session execution adapter. That adapter sends expanded command blocks to the
 desktop-owned Multiwfn, preserves per-block logs and postprocessing, strips only

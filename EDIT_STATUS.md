@@ -1,5 +1,58 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Windows Bash shebang dispatch — 2026-10-15 (accepted)
+
+Continues recorded snapshot `faca96d2122e818ce41ff4e7132097173b4aa299`;
+cumulative baseline remains `ea0befc3aad728bdd61ede9b45a68725df490f5d`.
+The original Windows runner required gitbash_exec before recognizing a Bash
+shebang, while GUI job configurations omit that setting. Bash commands therefore
+fell through to cmd.exe. The runner now discovers Git for Windows from standard
+machine/user folders or git.exe on PATH. Explicit gitbash_exec and the
+BANEWFN_GIT_BASH environment override support custom installations. Missing or
+invalid interpreters fail explicitly. WSL bash.exe is never auto-selected.
+
+The adapter invokes bin/bash.exe synchronously with CreateProcessW, quotes script
+paths, preserves the job directory/log streams and exit code, and handles legacy
+git-bash.exe configuration by resolving its interpreter. Windows Bash script files
+use LF; CRLF-authored workflows also work on POSIX. Quoted gitbash_exec values
+are unquoted consistently with other rc paths. No-shebang Windows blocks retain
+cmd.exe behavior. Bash does not load login/interactive profiles; external tools
+must be installed and on PATH. Scientific sources and canonical BaneWfn are unchanged.
+
+Validation:
+- Incremental Linux build: cmake --build build --target multiwfn_workflow_resources -j4.
+- Static Windows runner: CMake build-win with x86_64-w64-mingw32-g++ and
+  MULTIWFN_WORKFLOW_STATIC=ON, cmake --build build-win -j4. Only KERNEL32.dll
+  and msvcrt.dll are imported; no new package runtime DLLs.
+- Linux test_workflow_runner.py: 9/9 passed. test_workflow_package.py build passed
+  (GUI inspection/dry-run parity, shell execution, real single-atom XYZ I/O).
+- Windows native package suite passed, including CRLF, blank lines, Chinese/spaced
+  work directories, Bash arrays/mkdir/mv, env shebang, config precedence/quotes,
+  git-bash.exe compatibility, missing/invalid interpreter errors, PATH-only Git,
+  cmd compatibility and exit 7 propagation. Log: build/gitbash-windows-package.log.
+- Real Windows workbench -> Multiwfn XYZ export -> Git Bash rename -> normal
+  window close/exit 0 passed. Log: build/gitbash-windows-gui3.log; successful case:
+  C:\Users\Bane\AppData\Local\Temp\banewfn-gitbash-1792075387346 (55 KB).
+  Earlier probe failures were PowerShell extended-path handling and a nonexistent
+  workbench Return endpoint; workflow execution itself succeeded. Probe corrected
+  to normalize its fixture path and close the native window. Logs retained; two
+  duplicate probe folders removed after success.
+- The shell suite is now called by the existing three-platform package CI test.
+  This fix was tested locally on Linux and real Windows; macOS/Actions were not
+  rerun in this turn. The previous feature's CI result below is not a claim that
+  this later change has run on Actions.
+
+Ready Windows package updated in place:
+`C:\Users\Bane\Downloads\BaneWfn-GUI-resultview-20261015\banewfn_gui.exe`.
+Changed sidecar: resources/tools/multiwfn-workflow.exe, SHA256
+`b3adc290ca2f4248b410a297d499f8bb2e1264443953d311da0ba2f87464f036`.
+Original downloaded artifact remains unchanged remotely; this local package now
+contains the tested shell fix. Runner also at build-win/multiwfn-workflow.exe;
+Linux GUI at build/banewfn_gui. Retain build-win (~8 MB) for incremental Windows
+adapter builds; obsolete rollback runner removed after native verification.
+Delivery: artifacts/2026-10-15/deliveries/banewfn-gitbash/, cumulative patch against
+ea0befc, verified using a temporary Git index; no source-tree copy or archive.
+
 ## Cube result viewer and banewfn_gui entry — 2026-10-15 (accepted)
 
 Continues the accepted workbench tree `74bb401b950aa9e183b6b92b64caefd5dd565bf2`;

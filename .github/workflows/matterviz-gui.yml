@@ -29,6 +29,7 @@ on:
       - frontend/matterviz-desktop/**
       - frontend/workflows/**
       - tests/test_workflow_runner.py
+      - tests/test_workflow_shell.py
       - docs/workflows.md
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py

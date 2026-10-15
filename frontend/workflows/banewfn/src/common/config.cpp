@@ -436,7 +436,7 @@ bool ConfigManager::loadBaneWfnConfig(const std::string& configFile, bool requir
                 config.citationsOutput = expandPath(Utils::trimQuotes(value));
             } else if (key == "gitbash_exec") {
 #ifdef PLATFORM_WINDOWS
-                config.gitbashExec = expandPath(value);
+                config.gitbashExec = expandPath(Utils::trimQuotes(value));
 #else
                 // Ignore on non-Windows platforms
 #endif

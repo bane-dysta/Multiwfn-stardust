@@ -260,6 +260,21 @@ interactive builtins before handing control to a terminal. Unresolved `?`
 variables are rejected in session mode; supply their values in the GUI overrides.
 Platform shells and any tools used by `%command` must be available separately.
 
+On Windows, start a `%command` block with `#!/bin/bash` (or
+`#!/usr/bin/env bash`) to run it with Git Bash. Leading blank lines are allowed.
+The runner finds Git for Windows in standard machine/user installation folders
+or through `git.exe` on PATH; it does not select Windows' WSL `bash.exe`.
+For a portable/custom installation, set the Windows environment variable
+`BANEWFN_GIT_BASH` to the full path of `Git/bin/bash.exe` before starting the GUI.
+The runner also honors an explicit `gitbash_exec` in its `banewfn.rc`, with
+precedence over the environment override. An invalid explicit path is an error.
+Git Bash is external to the package. When a Bash block cannot find it, the job
+reports the missing interpreter instead of sending Bash syntax to cmd.exe.
+Blocks without a Bash shebang continue to use cmd.exe. Bash runs synchronously
+in the job directory, inherits the workflow log streams and PATH, and returns
+its exit code to the workflow. It does not load interactive/login profiles;
+tools such as vcube must be installed and available on PATH.
+
 Session blocks must finish at Multiwfn's main menu. Only the final generated
 `q` in module/builtin expansion is removed. Literal `%raw` input is preserved;
 main-menu `q`/`-10` fails the workflow while keeping the engine alive. Automatic

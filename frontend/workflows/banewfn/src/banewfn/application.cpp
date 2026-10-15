@@ -41,6 +41,7 @@
 #include <windows.h>
 #include <io.h>
 #include <conio.h>
+#include "../../../windows/git_bash.h"
 #endif
 
 namespace {
@@ -1725,6 +1726,9 @@ private:
         processedCmds.reserve(task.commands.size());
         for (const auto& cmdLine : task.commands) {
             processedCmds.push_back(replaceOnePlaceholderVar(cmdLine, "output", outFile));
+            // A CRLF-authored workflow must also run in Bash on POSIX.
+            if (!processedCmds.back().empty() && processedCmds.back().back() == '\r')
+                processedCmds.back().pop_back();
         }
 
         // In dryrun mode, only show what would be executed (after placeholder replacement)
@@ -1742,102 +1746,27 @@ private:
 #ifdef PLATFORM_WINDOWS
         int result = 0;
 
-        // Check if gitbash_exec is configured and first line is shebang #!/bin/bash
-        bool useGitBash = false;
-        if (!configManager.getConfig().gitbashExec.empty() && !processedCmds.empty()) {
-            std::string firstLine = processedCmds[0];
-            // Trim whitespace to check for shebang
-            std::string trimmedFirstLine = Utils::trim(firstLine);
-            if (trimmedFirstLine == "#!/bin/bash" || trimmedFirstLine.find("#!/bin/bash") == 0) {
-                useGitBash = true;
+        if (WorkflowShell::requestsBash(processedCmds)) {
+            const auto bash = WorkflowShell::findGitBash(configManager.getConfig().gitbashExec);
+            if (bash.empty()) {
+                std::cerr << "Error: This %command requests Bash, but Git Bash was not found. "
+                          << "Install Git for Windows, or set BANEWFN_GIT_BASH to its bin/bash.exe "
+                          << "(gitbash_exec in banewfn.rc is also supported).\n";
+                return false;
             }
-        }
-
-        if (useGitBash) {
-            // Use Git Bash to execute shell script
             scriptFileName += ".sh";
-            std::ofstream scriptFile(scriptFileName);
+            // Binary mode keeps Bash input LF-only, including
+            // scripts originally saved with Windows line endings.
+            std::ofstream scriptFile(scriptFileName, std::ios::binary);
             if (!scriptFile.is_open()) {
                 std::cerr << "Error: Cannot create shell script: " << scriptFileName << std::endl;
                 return false;
             }
-
-            // Write shell commands (including shebang if present)
             for (const auto& cmd : processedCmds) {
-                scriptFile << cmd << std::endl;
+                scriptFile << cmd << '\n';
             }
             scriptFile.close();
-
-            // Execute using Git Bash with -c parameter
-            // Convert Windows path to absolute path for bash
-            char absPath[MAX_PATH];
-            DWORD pathLen = GetFullPathNameA(scriptFileName.c_str(), MAX_PATH, absPath, nullptr);
-            std::string bashPath;
-            if (pathLen > 0 && pathLen < MAX_PATH) {
-                bashPath = absPath;
-            } else {
-                bashPath = scriptFileName;
-            }
-            // Convert Windows path separators to forward slashes for bash
-            size_t pos = 0;
-            while ((pos = bashPath.find('\\', pos)) != std::string::npos) {
-                bashPath.replace(pos, 1, "/");
-                pos += 1;
-            }
-
-            // Build command string for display
-            std::stringstream cmdDisplay;
-            cmdDisplay << "\"" << configManager.getConfig().gitbashExec << "\" -c \"bash " << bashPath << "\"";
-            std::cout << "Running script with Git Bash: " << cmdDisplay.str() << " ..." << std::endl;
-
-            // Use CreateProcess to avoid cmd.exe quote parsing issues
-            std::string gitbashPath = configManager.getConfig().gitbashExec;
-            std::string commandArg = "bash " + bashPath;
-
-            // Prepare command line for CreateProcess
-            // When lpApplicationName is specified, lpCommandLine should start with the program name
-            // Format: "program_path" -c "bash script_path"
-            std::string cmdLine = "\"" + gitbashPath + "\" -c \"" + commandArg + "\"";
-
-            STARTUPINFOA si;
-            PROCESS_INFORMATION pi;
-            memset(&si, 0, sizeof(si));
-            memset(&pi, 0, sizeof(pi));
-            si.cb = sizeof(si);
-            si.dwFlags |= STARTF_USESTDHANDLES;
-            si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-            si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-            si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-
-            // CreateProcess requires mutable string for lpCommandLine
-            std::vector<char> cmdLineBuf(cmdLine.begin(), cmdLine.end());
-            cmdLineBuf.push_back('\0');
-
-            BOOL success = CreateProcessA(
-                nullptr,
-                cmdLineBuf.data(),
-                nullptr,
-                nullptr,
-                TRUE,
-                0,
-                nullptr,
-                nullptr,
-                &si,
-                &pi
-            );
-
-            if (success) {
-                // Wait for process to complete
-                WaitForSingleObject(pi.hProcess, INFINITE);
-                DWORD exitCode = 0;
-                GetExitCodeProcess(pi.hProcess, &exitCode);
-                result = static_cast<int>(exitCode);
-                CloseHandle(pi.hProcess);
-                CloseHandle(pi.hThread);
-            } else {
-                std::cerr << "Error: Failed to start Git Bash process. Error code: " << GetLastError() << std::endl;
-                result = 1;
-            }
+            result = WorkflowShell::runGitBash(bash, scriptFileName);
 
             // Clean up shell script unless debug mode keeps execution artifacts.
             cleanUpExecutionTempFile(scriptFileName, options);

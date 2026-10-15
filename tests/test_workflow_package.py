@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from test_workbench_cli import check as check_workbench
+from test_workflow_shell import check as check_shell
 
 
 def check(root):
@@ -17,6 +18,7 @@ def check(root):
     engine = root / ("Multiwfn_MatterVizGUI" + suffix)
     library = root / "resources/workflows"
     check_workbench(runner)
+    check_shell(runner)
     for required in (runner, engine, library / "LICENSE", library / "NOTICE.md"):
         assert required.is_file(), f"Missing package file: {required}"
     with tempfile.TemporaryDirectory(prefix="workflow package ") as directory:
