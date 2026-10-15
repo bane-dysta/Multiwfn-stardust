@@ -18,7 +18,7 @@ def check(executable):
     5
     [electron]
     ${grid:-3}
-    [spin]
+[spin] # section comment
     #@gui grid
     # label = 自旋网格
     #@end

@@ -89,6 +89,7 @@ Values readValues(const std::string& path) {
     if (!f) throw std::runtime_error("Cannot read parameters: " + path);
     std::string text((std::istreambuf_iterator<char>(f)), {});
     if (text.size() > 256*1024) throw std::runtime_error("Parameters file is too large");
+    if (text.compare(0,3,"\xef\xbb\xbf")==0) text.erase(0,3);
     return ValueReader(text).read();
 }
 
@@ -141,7 +142,10 @@ void parseMetadata(const std::string& text, ModuleConfig& config) {
                 if (!std::set<std::string>{"label","help","type","options","unit"}.count(key)) error("Unknown GUI property: " + key);
                 else if (!metadata.emplace(key,Utils::trim(line.substr(pos+1))).second) error("Duplicate GUI property: " + key);
             }
-        } else if (line.size()>2 && line.front()=='[' && line.back()==']') scope = Utils::trim(line.substr(1,line.size()-2));
+        } else {
+            const auto header=Utils::trim(Utils::removeInlineComment(line));
+            if(header.size()>2 && header.front()=='[' && header.back()==']') scope=Utils::trim(header.substr(1,header.size()-2));
+        }
     }
     if (!name.empty()) { number=start; error("Missing #@end"); }
 }

@@ -805,6 +805,27 @@ jobs:
             cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test session_live -- --ignored --nocapture --test-threads=1
           fi
 
+      - name: Test independent BaneWfn workbench in extracted package
+        shell: bash
+        timeout-minutes: 3
+        env:
+          BANEWFN_TEST_OUTPUT: ${{ runner.temp }}/banewfn-workbench-package
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            export BANEWFN_TEST_PACKAGE="$PWD/clean-test"
+            test -f "$BANEWFN_TEST_PACKAGE/banewfn.exe"
+          else
+            export BANEWFN_TEST_PACKAGE="$PWD/clean-test/$PKG"
+            test -x "$BANEWFN_TEST_PACKAGE/banewfn"
+          fi
+          cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test workbench_live -- --ignored --nocapture
+          if [ "$RUNNER_OS" = macOS ]; then
+            export BANEWFN_TEST_PACKAGE="$PWD/macos-dist/BaneWfn.app/Contents/MacOS"
+            export BANEWFN_TEST_OUTPUT="${BANEWFN_TEST_OUTPUT}-app"
+            cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test workbench_live -- --ignored --nocapture
+          fi
+
       - name: Verify package contents
         shell: bash
         run: |
