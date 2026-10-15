@@ -263,7 +263,7 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
     add_custom_target(multiwfn_linux_desktop ALL
       COMMAND bash "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh"
         --output-dir "${CMAKE_CURRENT_BINARY_DIR}"
-      DEPENDS Multiwfn
+      DEPENDS Multiwfn banewfn
       COMMENT "Generating Linux application icon"
       VERBATIM)
     install(PROGRAMS tools/run-workflows-gui tools/linux/install-desktop-entry.sh
