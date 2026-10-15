@@ -36,7 +36,7 @@ def check(executable):
             if overrides is not None:
                 (root / "parameters.json").write_text(json.dumps(overrides, ensure_ascii=False), encoding="utf-8")
                 args += ["--parameters-json", str(root / "parameters.json")]
-            result = subprocess.run(args, cwd=root, capture_output=True, text=True, timeout=10)
+            result = subprocess.run(args, cwd=root, capture_output=True, text=True, encoding="utf-8", timeout=10)
             return result.returncode, json.loads(result.stdout)
         code, base = inspect()
         assert code == 0 and base["runnable"], base
@@ -57,7 +57,7 @@ def check(executable):
         assert inspect(target=inline)[1] == base
         # A real dry run must use precisely the command generator inspected above.
         inspect({"0/0/grid": "1"}, inline)
-        run = subprocess.run([str(exe), str(inline), "--wfn", str(root / "tiny.xyz"), "--dryrun", "--nogui", "--parameters-json", "parameters.json"], cwd=root, capture_output=True, text=True, timeout=10)
+        run = subprocess.run([str(exe), str(inline), "--wfn", str(root / "tiny.xyz"), "--dryrun", "--nogui", "--parameters-json", "parameters.json"], cwd=root, capture_output=True, text=True, encoding="utf-8", timeout=10)
         assert run.returncode == 0, run.stdout + run.stderr
         native = list(root.glob("grid_*.txt"))
         assert len(native) == 1 and native[0].read_text() == "5\n1\n3\n2\nq\n"
