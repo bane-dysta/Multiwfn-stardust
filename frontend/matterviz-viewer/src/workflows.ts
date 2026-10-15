@@ -106,6 +106,7 @@ export const create_workflow_client = (
     return response.json()
   }
   return {
+    openResults: async (directory: string, files: string[], units: Record<string, string>): Promise<void> => { await call('open-result', { directory, files, units }) },
     openResult: async (directory: string, file: string, unit?: string): Promise<void> => { await call('open-result', { directory, file, unit }) },
     status: async () => parse_workflow_status(await call('status')),
     pick: async (kind: WorkflowSelection) => parse_workflow_status(await call('pick', { kind })),

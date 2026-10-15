@@ -52,6 +52,7 @@ export const find_declared_esp_pair = (
     if (entries[densityIdx]?.analysisKind !== 'esp-density') continue
     for (let potentialIdx = 0; potentialIdx < entries.length; potentialIdx += 1) {
       if (entries[potentialIdx]?.analysisKind === 'esp-potential'
+        && (!entries[densityIdx].colorMapping?.path || entries[densityIdx].colorMapping?.path === entries[potentialIdx].path)
         && grids_compatible(densityIdx, potentialIdx)) return { densityIdx, potentialIdx }
     }
   }

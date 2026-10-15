@@ -1,5 +1,6 @@
 //! Presentation metadata for workflow outputs; Cube parsing stays in MatterViz.
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -160,9 +161,13 @@ fn entry(file: &str, cube: &Value) -> Value {
 }
 
 /// Select files by exact catalogue membership, never by joining request paths.
-pub fn plan(root: &Path, request: &Value) -> Result<Value, String> {
+fn plan_file(
+    root: &Path,
+    request: &Value,
+    catalog: &[Value],
+    saved: &mut Value,
+) -> Result<Value, String> {
     let file = request["file"].as_str().ok_or("Select a Cube result")?;
-    let catalog = cubes(root, &files(root));
     let selected = catalog
         .iter()
         .find(|c| c["file"] == file)
@@ -190,20 +195,10 @@ pub fn plan(root: &Path, request: &Value) -> Result<Value, String> {
         entries.insert(0, surface);
         sources.insert(0, root.join(density));
         if declared["unit"].is_null() {
-            let mut saved = settings(root);
             if !saved.is_object() {
-                saved = json!({});
+                *saved = json!({});
             }
             saved[file] = json!(unit);
-            let path = root.join(SETTINGS);
-            if fs::symlink_metadata(&path).is_ok_and(|m| !m.is_file()) {
-                return Err("Invalid result settings file".into());
-            }
-            fs::write(
-                path,
-                serde_json::to_vec_pretty(&saved).map_err(|e| e.to_string())?,
-            )
-            .map_err(|e| e.to_string())?;
         }
     }
     for source in &sources {
@@ -216,6 +211,101 @@ pub fn plan(root: &Path, request: &Value) -> Result<Value, String> {
         }
     }
     Ok(json!({"sources":sources, "manifest":{"cubes":entries}}))
+}
+
+/// Build one viewer session for the complete selection. Validate every file
+/// before persisting unit choices or launching any window.
+pub fn plan(root: &Path, request: &Value) -> Result<Value, String> {
+    let catalog = cubes(root, &files(root));
+    let original_settings = settings(root);
+    let mut saved = original_settings.clone();
+    let result = if let Some(selection) = request.get("files") {
+        let selection = selection
+            .as_array()
+            .filter(|a| !a.is_empty() && a.len() <= 64)
+            .ok_or("Select between 1 and 64 Cube results")?;
+        let mut seen = BTreeSet::new();
+        let mut plans = Vec::new();
+        for value in selection {
+            let file = value.as_str().ok_or("Invalid Cube selection")?;
+            if !seen.insert(file) {
+                continue;
+            }
+            plans.push(
+                plan_file(
+                    root,
+                    &json!({"file":file,"unit":request["units"][file]}),
+                    &catalog,
+                    &mut saved,
+                )
+                .map_err(|error| format!("{file}: {error}"))?,
+            );
+        }
+        // A selected density already used for ESP need not appear again as an
+        // opaque, unmapped surface. Different ESP maps may share its source.
+        let mapped: BTreeSet<String> = plans
+            .iter()
+            .filter(|p| p["sources"].as_array().unwrap().len() == 2)
+            .map(|p| p["sources"][0].as_str().unwrap().to_owned())
+            .collect();
+        let mut sources: Vec<Value> = Vec::new();
+        let mut destinations: Vec<String> = Vec::new();
+        let mut entries: Vec<Value> = Vec::new();
+        for plan in plans {
+            let local_sources = plan["sources"].as_array().unwrap();
+            if local_sources.len() == 1 && mapped.contains(local_sources[0].as_str().unwrap()) {
+                continue;
+            }
+            let local_entries = plan["manifest"]["cubes"].as_array().unwrap();
+            let mut paths = Vec::new();
+            for source in local_sources {
+                // Distinct ESP surfaces need distinct representation identities,
+                // even when they map different potentials onto the same density.
+                let index = sources.len();
+                let name = Path::new(source.as_str().unwrap())
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy();
+                destinations.push(format!("{index:03}_{name}"));
+                sources.push(source.clone());
+                paths.push(entry(&destinations[index], &json!({}))["path"].clone());
+            }
+            for (index, old) in local_entries.iter().enumerate() {
+                let mut item = old.clone();
+                item["path"] = paths[index].clone();
+                item["name"] = json!(Path::new(local_sources[index].as_str().unwrap())
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/"));
+                if let Some(mapping) = old["colorMapping"]["path"].as_str() {
+                    let target = local_entries
+                        .iter()
+                        .position(|e| e["path"] == mapping)
+                        .unwrap();
+                    item["colorMapping"]["path"] = paths[target].clone();
+                }
+                if !entries.contains(&item) {
+                    entries.push(item);
+                }
+            }
+        }
+        json!({"sources":sources,"destinations":destinations,"manifest":{"cubes":entries}})
+    } else {
+        plan_file(root, request, &catalog, &mut saved)?
+    };
+    if saved != original_settings {
+        let path = root.join(SETTINGS);
+        if fs::symlink_metadata(&path).is_ok_and(|m| !m.is_file()) {
+            return Err("Invalid result settings file".into());
+        }
+        fs::write(
+            path,
+            serde_json::to_vec_pretty(&saved).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(result)
 }
 
 /// Each viewer owns its scratch session until its WebView closes. Source data
@@ -237,13 +327,30 @@ impl ViewSession {
         let session = Self(root);
         let sources = plan["sources"]
             .as_array()
-            .filter(|s| !s.is_empty() && s.len() <= 2)
+            .filter(|s| !s.is_empty() && s.len() <= 128)
             .ok_or("Invalid Cube view")?;
-        for source in sources {
+        let destinations = plan
+            .get("destinations")
+            .map(|value| {
+                value
+                    .as_array()
+                    .filter(|a| a.len() == sources.len())
+                    .ok_or("Invalid Cube destinations")
+            })
+            .transpose()?;
+        for (index, source) in sources.iter().enumerate() {
             let path = Path::new(source.as_str().ok_or("Invalid Cube path")?);
-            let destination = session
-                .0
-                .join(path.file_name().ok_or("Invalid Cube filename")?);
+            let name = if let Some(names) = destinations {
+                names[index].as_str().ok_or("Invalid Cube filename")?
+            } else {
+                path.file_name()
+                    .and_then(|p| p.to_str())
+                    .ok_or("Invalid Cube filename")?
+            };
+            if name.contains(['/', '\\']) || name == "." || name == ".." || name.is_empty() {
+                return Err("Invalid Cube filename".into());
+            }
+            let destination = session.0.join(name);
             if destination.exists() {
                 return Err("Duplicate Cube filename".into());
             }
@@ -311,6 +418,82 @@ mod tests {
             fs::write(path, "unchanged cube").unwrap();
         }
         ViewSession(root)
+    }
+
+    #[test]
+    fn selection_bundles_colliding_names_and_preserves_explicit_maps() {
+        let root = fixture(&[
+            "a/x_den.cub",
+            "a/x_kcal_esp.cub",
+            "b/x_den.cub",
+            "b/x_au_esp.cub",
+            "x_oH.cub",
+        ]);
+        let bundle = plan(&root.0, &json!({"files":["a/x_den.cub", "a/x_kcal_esp.cub", "b/x_au_esp.cub", "x_oH.cub", "x_oH.cub"]})).unwrap();
+        assert_eq!(bundle["sources"].as_array().unwrap().len(), 5);
+        let entries = bundle["manifest"]["cubes"].as_array().unwrap();
+        assert_eq!(entries.len(), 5); // No duplicate plain density or orbital.
+        for (surface, potential) in [(0, 1), (2, 3)] {
+            assert_eq!(
+                entries[surface]["colorMapping"]["path"],
+                entries[potential]["path"]
+            );
+        }
+        assert_eq!(entries[1]["valueUnit"], "kcal/mol");
+        assert_eq!(entries[3]["valueUnit"], "au");
+        assert_eq!(entries[4]["mode"], "signed");
+        assert_ne!(entries[0]["path"], entries[2]["path"]);
+        let view = ViewSession::create(&bundle).unwrap();
+        for destination in bundle["destinations"].as_array().unwrap() {
+            assert_eq!(
+                fs::read_to_string(view.0.join(destination.as_str().unwrap())).unwrap(),
+                "unchanged cube"
+            );
+        }
+        let scratch = view.0.clone();
+        drop(view);
+        assert!(!scratch.exists());
+        assert!(root.0.join("a/x_den.cub").is_file());
+        fs::write(root.0.join("a/x_au_esp.cub"), "unchanged cube").unwrap();
+        let shared = plan(
+            &root.0,
+            &json!({"files":["a/x_den.cub", "a/x_kcal_esp.cub", "a/x_au_esp.cub"]}),
+        )
+        .unwrap();
+        assert_eq!(shared["manifest"]["cubes"].as_array().unwrap().len(), 4);
+        assert_eq!(shared["sources"][0], shared["sources"][2]);
+        assert_ne!(
+            shared["manifest"]["cubes"][0]["path"],
+            shared["manifest"]["cubes"][2]["path"]
+        );
+    }
+
+    #[test]
+    fn invalid_batch_does_not_persist_partial_unit_choices() {
+        let root = fixture(&["x_den.cub", "x_esp.cub", "orphan_esp.cub"]);
+        assert!(plan(
+            &root.0,
+            &json!({"files":["x_esp.cub", "../x_den.cub"], "units":{"x_esp.cub":"au"}})
+        )
+        .is_err());
+        assert!(!root.0.join(SETTINGS).exists());
+        assert!(
+            plan(&root.0, &json!({"files":["x_den.cub", "orphan_esp.cub"]}))
+                .unwrap_err()
+                .contains("orphan_esp.cub")
+        );
+        assert!(plan(&root.0, &json!({"files":[]})).is_err());
+        assert!(plan(&root.0, &json!({"files":vec!["x_den.cub";65]})).is_err());
+        let bundle = plan(
+            &root.0,
+            &json!({"files":["x_esp.cub"], "units":{"x_esp.cub":"kcal/mol"}}),
+        )
+        .unwrap();
+        assert_eq!(bundle["sources"].as_array().unwrap().len(), 2);
+        assert_eq!(settings(&root.0)["x_esp.cub"], "kcal/mol");
+        let mut malicious = bundle;
+        malicious["destinations"][0] = json!("../outside.cub");
+        assert!(ViewSession::create(&malicious).is_err());
     }
 
     #[test]

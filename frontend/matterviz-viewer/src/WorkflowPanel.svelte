@@ -53,6 +53,29 @@
   let outputView: 'log' | 'files' = 'log'
   let activeTab = 'settings'
   let resultUnits: Record<string, string> = {}
+  let selectedResults: string[] = []
+  const selectResult = (file: string, checked: boolean): void => {
+    selectedResults = checked ? [...selectedResults, file] : selectedResults.filter(value => value !== file)
+  }
+  const openResults = async (all = false): Promise<void> => {
+    if (!status?.job || busy || workflow_active(status.job)) return
+    if (all) selectedResults = (status.job.cubes ?? []).map(cube => cube.file)
+    if (!selectedResults.length) return
+    error = ''
+    const chosen = (status.job.cubes ?? []).filter(cube => selectedResults.includes(cube.file))
+    for (const cube of chosen) {
+      if (cube.kind !== 'esp') continue
+      const message = !cube.density ? 'ESP needs one matching _den Cube in the same folder'
+        : !(resultUnits[cube.file] || cube.unit) ? 'Choose the ESP data unit' : ''
+      if (message) { error = `${cube.file}: ${$t(message)}`; return }
+    }
+    busy = true
+    try {
+      await client.openResults(status.job.directory, selectedResults, resultUnits)
+      apply(await client.status())
+    } catch (reason) { show_error(reason) }
+    finally { busy = false }
+  }
   const openResult = async (cube: WorkflowCube): Promise<void> => {
     if (!status?.job || busy) return
     busy = true; error = ''
@@ -77,7 +100,8 @@
   const apply = (next: WorkflowStatus): void => {
     if (destroyed) return
     if (status?.session && next.session && status.session.revision !== next.session.revision) onrefresh?.()
-    if (status?.job?.directory !== next.job?.directory) resultUnits = {}
+    if (status?.job?.directory !== next.job?.directory) { resultUnits = {}; selectedResults = [] }
+    else selectedResults = selectedResults.filter(file => next.job?.cubes?.some(cube => cube.file === file))
     status = next
     if (!next.scripts.some((script) => script.id === selected)) void preview(next.scripts[0]?.id ?? '')
   }
@@ -233,9 +257,18 @@
                 {:else}
                   <div class="workflow-result-files">
                     <p class="workflow-result-path">{display_path(status.job.directory)}</p>
+                    {#if status.job.cubes?.length}
+                      <div class="workflow-result-toolbar">
+                        <label><input type="checkbox" aria-label={$t('Select all Cube files')} checked={selectedResults.length === status.job.cubes.length} indeterminate={selectedResults.length > 0 && selectedResults.length < status.job.cubes.length} disabled={busy || running || status.job.state === 'prepared'} onchange={(event) => selectedResults = event.currentTarget.checked ? (status?.job?.cubes ?? []).map(cube => cube.file) : []} />{$t('Select all')}</label>
+                        <span class="workflow-selected-count">{selectedResults.length} / {status.job.cubes.length}</span>
+                        <button type="button" disabled={busy || running || status.job.state === 'prepared' || !selectedResults.length} onclick={() => openResults()}>{$t('Render selected')}</button>
+                        <button type="button" class="workflow-primary" disabled={busy || running || status.job.state === 'prepared'} onclick={() => openResults(true)}><Play size={15} />{$t('One-click render')}</button>
+                      </div>
+                    {/if}
                     <ul>{#each status.job.files as file}
                       {@const cube = status.job.cubes?.find(cube => cube.file === file)}
                       <li>
+                        {#if cube}<input type="checkbox" aria-label={`${$t('Select result')}: ${file}`} checked={selectedResults.includes(file)} disabled={busy || running || status.job.state === 'prepared'} onchange={(event) => selectResult(file, event.currentTarget.checked)} />{/if}
                         <FileText size={16} /><div class="workflow-result-name"><span>{file}</span>{#if cube}<span class="workflow-result-kind">{$t(workflow_cube_label(cube))}{#if cube.unit} · {cube.unit}{/if}</span>{/if}</div>
                         {#if cube}
                           {#if cube.kind === 'esp' && !cube.unitDeclared}
@@ -361,6 +394,11 @@
   li :global(svg) { flex-shrink: 0; margin-top: 4px; color: var(--ui-muted-foreground); }
   li span { min-width: 0; }
   .workflow-output-empty { display: flex; flex: 1; align-items: center; justify-content: center; flex-direction: column; gap: 10px; padding: 24px; color: #8b98a8; }
+  .workflow-result-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--ui-border); }
+  .workflow-result-toolbar label { display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
+  .workflow-selected-count { margin-right: auto; color: var(--ui-muted-foreground); font-size: 12px; }
+  .workflow-result-toolbar button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; }
+  .workflow-result-files input[type="checkbox"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--ui-accent); }
   .workflow-output-empty p, .workflow-empty { margin: 0; }
   .workflow-empty { padding: 16px 0; color: var(--ui-muted-foreground); }
   .workflow-error { margin: 10px 0; color: #b42318; font-size: 13px; overflow-wrap: anywhere; }

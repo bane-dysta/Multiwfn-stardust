@@ -74,6 +74,12 @@ test('ESP pairing requires explicit density and potential provenance plus the ac
     { path: '/api/volume/5', analysisKind: 'generic-scalar' },
   ]
   assert.deepEqual(findDeclaredEspPair(espEntries, compatible), { densityIdx: 0, potentialIdx: 1 })
+  const batchEntries = [
+    {...espEntries[0], colorMapping: {path:'second-esp.cub', range:[-0.05,0.05] as [number,number], stops:[]}},
+    {...espEntries[1], path:'first-esp.cub'},
+    {...espEntries[1], path:'second-esp.cub'},
+  ]
+  assert.deepEqual(findDeclaredEspPair(batchEntries, compatible), { densityIdx:0, potentialIdx:2 })
   assert.deepEqual(
     findMappedEspPair(espEntries, [{ volume_idx: 0, color_volume_idx: 1 }], compatible),
     { densityIdx: 0, potentialIdx: 1 },

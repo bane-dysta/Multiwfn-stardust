@@ -1,5 +1,23 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Batch result rendering — 2026-10-15 (in verification)
+
+Continues `b8b01189e78c5d79b665b93aba28300acc4627b5`; cumulative baseline ea0befc.
+Result Cube rows now support selection and Render selected; One-click render
+selects all Cubes and sends them to one MatterViz window with automatic presets.
+It does not export images. Batch plans validate the entire selection, preserve
+explicit ESP units/pairs, auto-include density and avoid duplicate plain density
+surfaces. Stage names distinguish same-name files from different folders and
+give distinct ESP mappings independent representation identities. Unit settings
+are written only after all requested files validate. Original results are intact.
+The existing single-result API remains compatible. Declared ESP lookup now
+honors explicit mapping paths in a multi-dataset scene.
+
+Linux GUI build and browser workbench selection/language checks passed; Rust
+151 tests and clippy passed (two opt-in live tests ignored). Native multi-Cube
+rendering and Windows package verification are in progress. Active main/index
+are preserved; new CI snapshots use private indexes. No scientific core edits.
+
 ## Windows Bash shebang dispatch — 2026-10-15 (accepted)
 
 Continues recorded snapshot `faca96d2122e818ce41ff4e7132097173b4aa299`;

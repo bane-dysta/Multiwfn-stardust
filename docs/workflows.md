@@ -56,6 +56,17 @@ This opens the existing MatterViz viewer in its own window, with the molecule
 read from the Cube. View controls, representations and image export remain
 available. No Multiwfn calculation is needed to display an existing result.
 
+Check multiple Cube rows and choose **Render selected** to open them together in
+one MatterViz window, with the same automatic presets as individual rendering.
+**One-click render** selects all Cube results and opens the complete selection;
+it does not export images. Non-Cube logs/configurations are not selected. ESP
+automatically includes its paired density even if that row is unchecked. A
+selected density used for ESP is not duplicated as an unmapped surface. Matching
+filenames from different output folders remain distinct. Choose any unresolved
+ESP units first; a missing pair or invalid selection blocks the whole request.
+Each window receives its own temporary bundle of file links/copies and preserves
+the original outputs. Up to 64 selected Cubes can be sent per window.
+
 Scripts can rename fixed-name Multiwfn outputs in `%command`. Keep the type
 suffix last to remain compatible with vcube:
 
