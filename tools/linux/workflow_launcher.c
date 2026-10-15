@@ -1,4 +1,4 @@
-/* Desktop entry for the optional persistent workflow host, not the CLI engine. */
+/* Independent BaneWfn GUI entry. */
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <limits.h>
@@ -6,9 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#ifndef BANEWFN_ENTRY
-#define BANEWFN_ENTRY 0
-#endif
 
 int main(int argc, char **argv) {
     char executable[PATH_MAX];
@@ -33,8 +30,7 @@ int main(int argc, char **argv) {
     strcpy(script, executable);
     strcat(script, suffix);
     arguments[0] = script;
-    if (BANEWFN_ENTRY) arguments[1] = "--workbench";
-    for (int i = 1; i < argc; ++i) arguments[i + BANEWFN_ENTRY] = argv[i];
+    for (int i = 1; i < argc; ++i) arguments[i] = argv[i];
     execv(script, arguments);
     fprintf(stderr, "Multiwfn: cannot start %s: %s\n", script, strerror(errno));
     free(arguments);

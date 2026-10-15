@@ -26,6 +26,5 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=matterviz 
   -DMULTIWFN_WITH_WORKFLOWS=ON \
   -DMULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE="$CARGO_TARGET_DIR/release/matterviz-desktop"
 cmake --build build -j4
-echo "Launch: $project_root/build/Multiwfn [startup-file]"
 echo "BaneWfn GUI: $project_root/build/banewfn_gui [startup-file]"
 echo "Application menu: $project_root/build/install-desktop-entry.sh"

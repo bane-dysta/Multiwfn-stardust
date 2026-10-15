@@ -18,11 +18,6 @@ pub mod plot_store;
 pub mod service;
 #[path = "../../../frontend/matterviz-desktop/src/session_data.rs"]
 pub mod session_data;
-#[cfg(any(unix, windows))]
-#[path = "../../../frontend/matterviz-desktop/src/session_engine.rs"]
-pub mod session_engine;
-#[path = "../../../frontend/matterviz-desktop/src/session_pipe.rs"]
-pub mod session_pipe;
 #[path = "../../../frontend/matterviz-desktop/src/shutdown.rs"]
 pub mod shutdown;
 #[path = "../../../frontend/matterviz-desktop/src/stream_broker.rs"]

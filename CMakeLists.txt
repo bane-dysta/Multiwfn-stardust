@@ -173,8 +173,6 @@ if(MULTIWFN_GUI_BACKEND MATCHES "^(3dmol|matterviz)$")
   list(APPEND MULTIWFN_CORE_SOURCES
     noGUI/plot_external_empty.f90
     noGUI/matterviz_spawn.c
-    noGUI/matterviz_session.c
-    noGUI/matterviz_session.f90
   )
 endif()
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
@@ -225,21 +223,10 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
 endif()
 
 if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
-  find_package(Python3 REQUIRED COMPONENTS Interpreter)
-  set(_session_entry "${CMAKE_CURRENT_BINARY_DIR}/generated/session/Multiwfn.f90")
-  execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_session_entry.py"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Multiwfn.f90" "${_session_entry}"
-    COMMAND_ERROR_IS_FATAL ANY)
-  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS Multiwfn.f90 tools/generate_session_entry.py)
-  list(REMOVE_ITEM MULTIWFN_CORE_SOURCES Multiwfn.f90)
-  list(APPEND MULTIWFN_CORE_SOURCES "${_session_entry}")
-  add_executable(session-input-probe tests/session_input_probe.f90)
   if(WIN32)
-    add_executable(Multiwfn WIN32 tools/windows/workflow_launcher.c)
     add_executable(banewfn_gui WIN32 tools/windows/workflow_launcher.c)
     target_sources(banewfn_gui PRIVATE tools/windows/banewfn.rc)
     target_include_directories(banewfn_gui PRIVATE frontend/workflows/icons)
-    target_compile_definitions(banewfn_gui PRIVATE BANEWFN_ENTRY=1)
     target_link_libraries(banewfn_gui PRIVATE user32)
     install(TARGETS banewfn_gui RUNTIME DESTINATION bin COMPONENT workflows)
     configure_file(tools/windows/Register-BaneWfn-GUI.ps1
@@ -251,21 +238,11 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
     if(MINGW)
       target_link_options(banewfn_gui PRIVATE -municode)
     endif()
-    install(TARGETS Multiwfn RUNTIME DESTINATION bin COMPONENT workflows)
-    target_link_libraries(Multiwfn PRIVATE user32)
-    if(MINGW)
-      target_link_options(Multiwfn PRIVATE -municode)
-    endif()
   elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    add_executable(Multiwfn tools/linux/workflow_launcher.c)
     add_executable(banewfn_gui tools/linux/workflow_launcher.c)
-    target_compile_definitions(banewfn_gui PRIVATE BANEWFN_ENTRY=1)
     install(TARGETS banewfn_gui RUNTIME DESTINATION bin COMPONENT workflows)
-    install(TARGETS Multiwfn RUNTIME DESTINATION bin COMPONENT workflows)
     configure_file(tools/linux/install-desktop-entry.sh
       "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh" COPYONLY)
-    configure_file(frontend/matterviz-desktop/icons/icon.png
-      "${CMAKE_CURRENT_BINARY_DIR}/resources/multiwfn.png" COPYONLY)
     configure_file(frontend/workflows/icons/banewfn.png
       "${CMAKE_CURRENT_BINARY_DIR}/resources/banewfn.png" COPYONLY)
     configure_file(tools/linux/banewfn-mime.xml
@@ -275,13 +252,11 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
     add_custom_target(multiwfn_linux_desktop ALL
       COMMAND bash "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh"
         --output-dir "${CMAKE_CURRENT_BINARY_DIR}"
-      DEPENDS Multiwfn banewfn_gui
+      DEPENDS banewfn_gui
       COMMENT "Generating Linux application icon"
       VERBATIM)
     install(PROGRAMS tools/run-workflows-gui tools/linux/install-desktop-entry.sh
       DESTINATION bin COMPONENT workflows)
-    install(FILES frontend/matterviz-desktop/icons/icon.png
-      DESTINATION bin/resources RENAME multiwfn.png COMPONENT workflows)
     install(FILES frontend/workflows/icons/banewfn.png
       DESTINATION bin/resources COMPONENT workflows)
     install(FILES tools/linux/banewfn-mime.xml DESTINATION bin/resources COMPONENT workflows)

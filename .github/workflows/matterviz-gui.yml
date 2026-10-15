@@ -18,18 +18,20 @@ on:
       - noGUI/dislin_d_empty.f90
       - noGUI/matterviz_plot_capture.f90
       - noGUI/matterviz_spawn.c
-      - noGUI/matterviz_session.*
       - noGUI/matterviz_file_dialog.c
-      - tools/generate_session_entry.py
       - tools/run-workflows-gui
       - tools/linux/**
+      - tools/windows/**
+      - tools/sync_banewfn.py
+      - tools/build_workflows_gui.sh
       - tests/test_linux_desktop_entry.py
-      - tests/test_session_entry.py
       - tests/test_workflow_package.py
       - frontend/matterviz-desktop/**
       - frontend/workflows/**
       - tests/test_workflow_runner.py
       - tests/test_workflow_shell.py
+      - tests/test_workbench_cli.py
+      - tests/test_windows_workflow_association.ps1
       - docs/workflows.md
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py
@@ -145,7 +147,7 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py tests/test_session_entry.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
@@ -162,20 +164,6 @@ jobs:
           test -x build-matterviz-gui/resources/tools/matterviz-file-dialog
           test -x build-matterviz-gui/run-workflows-gui
 
-      - name: Test persistent Multiwfn session
-        timeout-minutes: 3
-        env:
-          MULTIWFN_SESSION_BUILD_DIR: ${{ github.workspace }}/build-matterviz-gui
-          MULTIWFN_SESSION_CHECK_DIR: ${{ runner.temp }}/session-live-build
-        run: cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test session_live -- --ignored --nocapture --test-threads=1
-
-      - name: Upload session diagnostics on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: matterviz-build-diagnostics
-          path: ${{ runner.temp }}/session-live-build
-          if-no-files-found: ignore
 
   package:
     name: Package MatterViz WebView (${{ matrix.platform }})
@@ -299,7 +287,6 @@ jobs:
             -DMULTIWFN_GUI_BACKEND=matterviz \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-package --parallel 2
-          ./build-matterviz-package/session-input-probe
 
       - name: Build Multiwfn MatterViz executable on Windows
         if: runner.os == 'Windows'
@@ -344,10 +331,9 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
           cp "build-matterviz-package/resources/tools/multiwfn-workflow$suffix" "package/$pkg/resources/tools/"
           if [ "$RUNNER_OS" = Linux ]; then
-            cp build-matterviz-package/Multiwfn build-matterviz-package/banewfn_gui build-matterviz-package/run-workflows-gui \
+            cp build-matterviz-package/banewfn_gui build-matterviz-package/run-workflows-gui \
               build-matterviz-package/install-desktop-entry.sh "package/$pkg/"
-            cp build-matterviz-package/resources/multiwfn.png \
-              build-matterviz-package/resources/banewfn.png \
+            cp build-matterviz-package/resources/banewfn.png \
               build-matterviz-package/resources/banewfn-mime.xml "package/$pkg/resources/"
             cp build-matterviz-package/resources/tools/matterviz-file-dialog "package/$pkg/resources/tools/"
           fi
@@ -359,16 +345,13 @@ jobs:
           cat > "package/$pkg/README-MatterViz.txt" <<'EOF'
           MatterViz WebView package
 
-          Windows: double-click Multiwfn.exe. macOS: open Multiwfn.app.
-          These desktop entries own one persistent Multiwfn engine.
-          Multiwfn_MatterVizGUI remains available for command-line use.
+          Multiwfn_MatterVizGUI retains its normal interactive and command-line entry.
+          macOS: open Multiwfn.app for the existing molecular viewer.
 
-          BaneWfn workflows and scripts are included on all platforms.
-          Linux: open Multiwfn, or run ./install-desktop-entry.sh once to add
-          Multiwfn to your application menu. Run the installer again after moving
-          the package. ./Multiwfn [startup-file] also works from a terminal.
-          macOS tar package: resources/tools/matterviz-desktop --launch [startup-file].
-          Workflows use the independent banewfn_gui entry (BaneWfn GUI.app on macOS).
+          BaneWfn workflows use the independent banewfn_gui entry
+          (BaneWfn GUI.app on macOS). Linux: run ./install-desktop-entry.sh once
+          to add BaneWfn GUI to the application menu; rerun it after moving the
+          package. ./banewfn_gui [script.bwc] [-w startup-file] also works.
           The rendering window has no workflow panel; workflow results open there
           through Render selected or One-click render.
 
@@ -398,7 +381,7 @@ jobs:
               "package/$PKG/resources/tools/multiwfn-matterviz-updater"
           fi
           for binary in \
-            build-matterviz-package/Multiwfn \
+            build-matterviz-package/banewfn_gui \
             build-matterviz-package/Multiwfn_MatterVizGUI \
             frontend/matterviz-desktop/target/release/matterviz-desktop \
             package/"$PKG"/resources/tools/multiwfn-workflow \
@@ -442,7 +425,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          MULTIWFN_TEST_LINUX_LAUNCHER="$PWD/package/$PKG/Multiwfn" \
+          MULTIWFN_TEST_LINUX_LAUNCHER="$PWD/package/$PKG/banewfn_gui" \
             python3 -m unittest discover -s tests -p test_linux_desktop_entry.py -v
 
       - name: Test extracted Linux WebView package
@@ -662,7 +645,6 @@ jobs:
         run: |
           set -euo pipefail
           cp build-matterviz-package/Multiwfn_MatterVizGUI.exe "package/$PKG/Multiwfn_MatterVizGUI.exe"
-          cp build-matterviz-package/Multiwfn.exe "package/$PKG/Multiwfn.exe"
           cp build-matterviz-package/banewfn_gui.exe "package/$PKG/banewfn_gui.exe"
           cp tools/windows/Register-BaneWfn-GUI.ps1 tools/windows/Register-BaneWfn-GUI.cmd "package/$PKG/"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop.exe \
@@ -790,26 +772,6 @@ jobs:
           fi
           if [ "$RUNNER_OS" = macOS ]; then
             python3 tests/test_workflow_package.py "$PWD/macos-dist/Multiwfn.app/Contents/MacOS"
-          fi
-
-      - name: Test native GUI lifecycle without embedded workflows
-        shell: bash
-        timeout-minutes: 3
-        env:
-          MULTIWFN_SESSION_CHECK_DIR: ${{ runner.temp }}/session-live-package
-        run: |
-          set -euo pipefail
-          if [ "$RUNNER_OS" = Windows ]; then
-            ./build-matterviz-package/session-input-probe.exe
-            export MULTIWFN_SESSION_BUILD_DIR="$PWD/clean-test"
-          else
-            export MULTIWFN_SESSION_BUILD_DIR="$PWD/clean-test/$PKG"
-          fi
-          cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test session_live -- --ignored --nocapture --test-threads=1
-          if [ "$RUNNER_OS" = macOS ]; then
-            export MULTIWFN_SESSION_BUILD_DIR="$PWD/macos-dist/Multiwfn.app/Contents/MacOS"
-            export MULTIWFN_SESSION_CHECK_DIR="${MULTIWFN_SESSION_CHECK_DIR}-app"
-            cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test session_live -- --ignored --nocapture --test-threads=1
           fi
 
       - name: Test independent BaneWfn workbench in extracted package

@@ -31,7 +31,6 @@
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import UpdateModal from './UpdateModal.svelte'
-  const ownedSession = typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('ownedSession')
   import ViewerInspector from './ViewerInspector.svelte'
   import RepInspector from './RepInspector.svelte'
   import RepLayer from './RepLayer.svelte'
@@ -1528,7 +1527,7 @@
         if (!response.ok || !payload.ok) throw new Error(payload.message || 'Return request failed')
       },
       close: () => window.close(),
-      onReturned: () => set_status(ui_message(ownedSession ? 'Closing session...' : 'Returning to Multiwfn...')),
+      onReturned: () => set_status(ui_message('Returning to Multiwfn...')),
       onError: report_error,
     })
     returnPending = false
@@ -1971,7 +1970,7 @@
     <Button variant="outline" size="sm" type="button" class="language-toggle gap-1.5 text-xs" aria-label={$locale === 'zh' ? 'Switch to English' : '切换到中文'} title={$locale === 'zh' ? 'Switch to English' : '切换到中文'} onclick={() => set_locale($locale === 'zh' ? 'en' : 'zh')}>
       <Languages size={15} aria-hidden="true" /><span lang="zh-CN" class:language-active={$locale === 'zh'}>中文</span><span aria-hidden="true">/</span><span lang="en" class:language-active={$locale === 'en'}>EN</span>
     </Button>
-    <Button variant="outline" size="sm" class="return text-xs" type="button" title={$t(ownedSession ? 'Close session' : 'Return to the Multiwfn calculation menu')} onclick={return_to_multiwfn} disabled={returnPending || savingResult}>{$t(ownedSession ? 'Close session' : 'Return')}</Button>
+    <Button variant="outline" size="sm" class="return text-xs" type="button" title={$t("Return to the Multiwfn calculation menu")} onclick={return_to_multiwfn} disabled={returnPending || savingResult}>{$t("Return")}</Button>
   </header>
 
   {#if advancedStructure && manifest.periodic?.enabled && activeResult === 'scene'}

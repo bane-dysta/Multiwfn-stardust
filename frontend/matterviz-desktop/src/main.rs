@@ -11,9 +11,6 @@ pub mod plot_protocol;
 pub mod plot_store;
 mod service;
 mod session_data;
-#[cfg(any(unix, windows))]
-mod session_engine;
-mod session_pipe;
 mod shutdown;
 mod stream_broker;
 mod transport;
@@ -45,10 +42,6 @@ fn main() -> ExitCode {
     }
     if env::args().nth(1).as_deref() == Some("--workbench") {
         return launch_workbench();
-    }
-    #[cfg(any(unix, windows))]
-    if env::args().nth(1).as_deref() == Some("--launch") {
-        return launch_session();
     }
     let cli = match Cli::parse(env::args().skip(1)) {
         Ok(value) => value,
@@ -146,7 +139,7 @@ fn launch_workbench() -> ExitCode {
             args.script.as_deref(),
         )?;
         let page = Url::parse(&service.url).map_err(|e| e.to_string())?;
-        eprintln!("BaneWfn workbench: {}", service.url);
+        eprintln!("BaneWfn workbench started");
         let mut context = desktop_context();
         context.set_default_window_icon(Some(tauri::include_image!(
             "../workflows/icons/banewfn.png"
@@ -220,7 +213,7 @@ fn launch_workflow_result() -> ExitCode {
             },
             None,
         )?;
-        eprintln!("BaneWfn result viewer: {}", service.url());
+        eprintln!("BaneWfn result viewer started");
         // The guard lives through the WebView event loop, even if the workbench exits.
         Ok(run_tauri(
             service.url().to_owned(),
@@ -234,62 +227,6 @@ fn launch_workflow_result() -> ExitCode {
             eprintln!("BaneWfn result viewer: {error}");
             rfd::MessageDialog::new()
                 .set_title("BaneWfn")
-                .set_description(&error)
-                .set_level(rfd::MessageLevel::Error)
-                .show();
-            ExitCode::from(2)
-        }
-    }
-}
-
-fn launch_session() -> ExitCode {
-    let launch = || -> Result<(Arc<HttpService>, Arc<session_engine::SessionEngine>), String> {
-        let executable = env::current_exe().map_err(|e| e.to_string())?;
-        let resources = executable
-            .parent()
-            .and_then(Path::parent)
-            .ok_or("Invalid desktop installation")?;
-        let root = resources.parent().ok_or("Missing Multiwfn installation")?;
-        let engine = if resources.file_name().is_some_and(|n| n == "Resources") {
-            root.join("MacOS/Multiwfn_MatterVizGUI")
-        } else {
-            root.join(if cfg!(windows) {
-                "Multiwfn_MatterVizGUI.exe"
-            } else {
-                "Multiwfn_MatterVizGUI"
-            })
-        };
-        let input = match env::args_os().nth(2) {
-            Some(path) => std::path::PathBuf::from(path),
-            None => file_dialog::select_file(Path::new(""))
-                .map_err(|e| e.to_string())?
-                .ok_or("No startup file selected")?,
-        };
-        let (owner, config, control) = session_engine::SessionEngine::launch(
-            &engine,
-            &input,
-            resources.join("frontend/matterviz-viewer/dist"),
-        )?;
-        let service = Arc::new(HttpService::start_with_control(config, Some(control))?);
-        service.attach_session(owner.clone())?;
-        eprintln!(
-            "Multiwfn session PID: {}\nMultiwfn MatterViz GUI service: {}",
-            owner.pid,
-            service.url()
-        );
-        Ok((service, owner))
-    };
-    match launch() {
-        Ok((service, _owner)) => run_tauri(
-            format!("{}&ownedSession=1", service.url()),
-            Some(service),
-            Duration::from_secs(120),
-        ),
-        Err(error) => {
-            eprintln!("Multiwfn session: {error}");
-            #[cfg(any(windows, target_os = "macos"))]
-            rfd::MessageDialog::new()
-                .set_title("Multiwfn")
                 .set_description(&error)
                 .set_level(rfd::MessageLevel::Error)
                 .show();

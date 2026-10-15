@@ -15,7 +15,7 @@ fn request(page: &url::Url, action: &str, body: Option<Value>) -> Value {
     stream
         .set_read_timeout(Some(Duration::from_secs(30)))
         .unwrap();
-    write!(stream, "{method} /api/workflows/{action}?cap={cap} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{data}", page.authority(), data.len()).unwrap();
+    write!(stream, "{method} /api/workflows/{action}?cap={cap} HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{data}", page.authority(), page.origin().ascii_serialization(), data.len()).unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");

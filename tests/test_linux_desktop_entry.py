@@ -19,17 +19,15 @@ class LinuxDesktopEntryTests(unittest.TestCase):
         self.work = Path(self.temporary.name)
         self.app = self.work / 'Multiwfn 中文 space $dollar `tick` "quote" %percent \\slash'
         self.app.mkdir()
-        binary = Path(os.environ.get("MULTIWFN_TEST_LINUX_LAUNCHER", ROOT / "build/Multiwfn"))
-        self.assertTrue(binary.is_file(), f"Build the Linux Multiwfn target first: {binary}")
-        shutil.copy2(binary, self.app / "Multiwfn")
-        shutil.copy2(binary.with_name("banewfn_gui"), self.app / "banewfn_gui")
+        binary = Path(os.environ.get("MULTIWFN_TEST_LINUX_LAUNCHER", ROOT / "build/banewfn_gui"))
+        self.assertTrue(binary.is_file(), f"Build the Linux banewfn_gui target first: {binary}")
+        shutil.copy2(binary, self.app / "banewfn_gui")
         for source in [ROOT / "tools/run-workflows-gui", ROOT / "tools/linux/install-desktop-entry.sh"]:
             target = self.app / source.name
             shutil.copy2(source, target)
             target.chmod(0o755)
         tools = self.app / "resources/tools"
         tools.mkdir(parents=True)
-        shutil.copy2(ROOT / "frontend/matterviz-desktop/icons/icon.png", self.app / "resources/multiwfn.png")
         shutil.copy2(ROOT / "frontend/workflows/icons/banewfn.png", self.app / "resources/banewfn.png")
         shutil.copy2(ROOT / "tools/linux/banewfn-mime.xml", self.app / "resources/banewfn-mime.xml")
         host = tools / "matterviz-desktop"
@@ -44,18 +42,18 @@ class LinuxDesktopEntryTests(unittest.TestCase):
 
     def test_relocated_symlink_arguments_and_exit_code(self):
         link = self.work / "application-link"
-        link.symlink_to(self.app / "Multiwfn")
+        link.symlink_to(self.app / "banewfn_gui")
         for args in [[], ['启动 文件 $a `b` "c" %.xyz']]:
             result = subprocess.run([str(link), *args], cwd=self.work, env=self.env, capture_output=True)
             self.assertEqual(result.returncode, 17, result.stderr)
-            self.assertEqual(self.arguments(), ["--launch", *args])
+            self.assertEqual(self.arguments(), ["--workbench", *args])
 
     @unittest.skipUnless(shutil.which("gio"), "GIO desktop launcher required")
     def test_installed_icon_launches_exact_startup_file(self):
         result = subprocess.run([str(self.app / "install-desktop-entry.sh")], env=self.env,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        entry = Path(self.env["XDG_DATA_HOME"]) / "applications/Multiwfn-Workflows.desktop"
+        entry = Path(self.env["XDG_DATA_HOME"]) / "applications/BaneWfn.desktop"
         self.assertTrue(entry.is_file())
         startup = self.work / '启动 文件 $a `b` "c" %.xyz'
         startup.write_text("fixture")
@@ -67,7 +65,7 @@ class LinuxDesktopEntryTests(unittest.TestCase):
             deadline = time.monotonic() + 5
             while not self.capture.exists() and time.monotonic() < deadline:
                 time.sleep(0.02)
-            self.assertEqual(self.arguments(), ["--launch", *args])
+            self.assertEqual(self.arguments(), ["--workbench", *args])
 
     @unittest.skipUnless(shutil.which("gio"), "GIO desktop launcher required")
     def test_banewfn_gui_entry_and_icon_do_not_shadow_cli(self):
@@ -89,16 +87,17 @@ class LinuxDesktopEntryTests(unittest.TestCase):
             time.sleep(0.02)
         self.assertEqual(self.arguments(), ["--workbench", str(startup)])
         self.assertFalse((self.app / "banewfn").exists())
+        self.assertFalse((self.app / "Multiwfn").exists())
 
     def test_incomplete_package_reports_failure(self):
         (self.app / "run-workflows-gui").unlink()
-        result = subprocess.run([str(self.app / "Multiwfn")], capture_output=True, text=True)
+        result = subprocess.run([str(self.app / "banewfn_gui")], capture_output=True, text=True)
         self.assertEqual(result.returncode, 1)
         self.assertIn("cannot start", result.stderr)
         result = subprocess.run([str(self.app / "install-desktop-entry.sh")], env=self.env,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 1)
-        self.assertFalse((Path(self.env["XDG_DATA_HOME"]) / "applications/Multiwfn-Workflows.desktop").exists())
+        self.assertFalse((Path(self.env["XDG_DATA_HOME"]) / "applications/BaneWfn.desktop").exists())
 
 
 if __name__ == "__main__":

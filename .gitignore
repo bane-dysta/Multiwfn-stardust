@@ -59,3 +59,7 @@ Thumbs.db
 *.pdf
 # Local Windows cross-build and trial package
 /build-win/
+
+# Local handoff notes and Vite caches
+/EDIT_STATUS.md
+.vite/

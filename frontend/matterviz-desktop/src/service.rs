@@ -30,7 +30,6 @@ use socket2::{Domain, Protocol, Socket, Type};
 const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(300);
 const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
 const MAX_PLOT_EXPORT_BYTES: usize = 64 * 1024 * 1024;
-
 fn pick_parameter_path(body: &[u8]) -> Result<Value, String> {
     let value: Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
     let kind = match value["type"].as_str() {
@@ -91,13 +90,30 @@ impl WorkbenchService {
                             let _ = stream.set_nonblocking(false);
                             let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                             let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
-                            let request = match read_http_request(&mut stream) {
-                                Ok(r) => r,
-                                Err(_) => {
-                                    respond(&mut stream, 400, "text/plain", b"Bad Request", false);
-                                    return;
-                                }
-                            };
+                            let request =
+                                match read_http_request_with_limit(&mut stream, 256 * 1024) {
+                                    Ok(r) => r,
+                                    Err(HttpRequestError::TooLarge) => {
+                                        respond(
+                                            &mut stream,
+                                            413,
+                                            "text/plain",
+                                            b"Payload Too Large",
+                                            false,
+                                        );
+                                        return;
+                                    }
+                                    Err(_) => {
+                                        respond(
+                                            &mut stream,
+                                            400,
+                                            "text/plain",
+                                            b"Bad Request",
+                                            false,
+                                        );
+                                        return;
+                                    }
+                                };
                             if request.host != authority {
                                 respond(&mut stream, 403, "text/plain", b"Invalid Host", false);
                                 return;
@@ -135,6 +151,16 @@ impl WorkbenchService {
                                         405,
                                         "text/plain",
                                         b"Method Not Allowed",
+                                        false,
+                                    );
+                                    return;
+                                }
+                                if !same_origin(&request.headers, &authority, method == "POST") {
+                                    respond(
+                                        &mut stream,
+                                        403,
+                                        "text/plain",
+                                        b"Invalid Origin",
                                         false,
                                     );
                                     return;
@@ -294,7 +320,6 @@ pub struct HttpService {
     frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<Mutex<bool>>,
     updater: Arc<UpdateManager>,
-    session_owner: Arc<std::sync::OnceLock<Arc<crate::session_engine::SessionEngine>>>,
     plot_export_written: Arc<AtomicBool>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
@@ -384,35 +409,6 @@ impl ControlSession {
 }
 
 impl HttpService {
-    #[cfg(any(unix, windows))]
-    pub fn attach_session(
-        &self,
-        owner: Arc<crate::session_engine::SessionEngine>,
-    ) -> Result<(), String> {
-        let control = self
-            .control_session
-            .clone()
-            .ok_or("Missing GUI transport")?;
-        let leave = control.clone();
-        owner.bind(crate::session_engine::Hooks {
-            backend_lock: self.backend_lock.clone(),
-            leave: Box::new(move || {
-                let result = leave.request(
-                    backend::reserve_request_id(),
-                    "workflow yield",
-                    Duration::from_secs(30),
-                );
-                if result["ok"] == true {
-                    Ok(())
-                } else {
-                    Err(result.to_string())
-                }
-            }),
-        });
-        self.session_owner
-            .set(owner)
-            .map_err(|_| "Session already attached".to_owned())
-    }
     #[cfg(test)]
     pub fn start(config: AppConfig) -> Result<Self, String> {
         Self::start_with_control(config, None)
@@ -597,7 +593,6 @@ impl HttpService {
             frontend_ready,
             return_signaled: Arc::new(Mutex::new(false)),
             updater: Arc::new(UpdateManager::new(config.multiwfn_pid)),
-            session_owner: Arc::new(std::sync::OnceLock::new()),
             plot_export_written: Arc::new(AtomicBool::new(false)),
             worker: Mutex::new(None),
         };
@@ -646,7 +641,6 @@ impl HttpService {
             frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
             updater: self.updater.clone(),
-            session_owner: self.session_owner.clone(),
             plot_export_written: self.plot_export_written.clone(),
         }
     }
@@ -666,17 +660,6 @@ impl HttpService {
         self.shutdown.is_requested()
     }
     pub fn termination_exit_code(&self) -> i32 {
-        if self.session_owner.get().is_some() {
-            return if *self
-                .return_signaled
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-            {
-                0
-            } else {
-                2
-            };
-        }
         if self.in_memory_session
             && (!*self
                 .return_signaled
@@ -693,17 +676,6 @@ impl HttpService {
         }
     }
     pub fn signal_return(&self) -> Result<(), String> {
-        #[cfg(any(unix, windows))]
-        if let Some(owner) = self.session_owner.get() {
-            let result = owner.close();
-            if result.is_ok() {
-                *self
-                    .return_signaled
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner()) = true;
-            }
-            return result;
-        }
         let result = signal_return(
             self.in_memory_session,
             &self.return_signaled,
@@ -765,7 +737,6 @@ struct ServiceRunner {
     frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<Mutex<bool>>,
     updater: Arc<UpdateManager>,
-    session_owner: Arc<std::sync::OnceLock<Arc<crate::session_engine::SessionEngine>>>,
     plot_export_written: Arc<AtomicBool>,
 }
 impl ServiceRunner {
@@ -814,7 +785,6 @@ impl ServiceRunner {
             frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
             updater: self.updater.clone(),
-            session_owner: self.session_owner.clone(),
             plot_export_written: self.plot_export_written.clone(),
         }
     }
@@ -1231,7 +1201,7 @@ impl ServiceRunner {
             return;
         }
         if path == "/session/manifest.json" {
-            if let Some(data) = &self.current_session_data() {
+            if let Some(data) = &self.session_data {
                 let topology = self.plot_store.topology_metadata();
                 let surface = self.plot_store.surface_metadata();
                 if topology.is_some() || surface.is_some() {
@@ -1268,7 +1238,7 @@ impl ServiceRunner {
         }
         if path == "/session/workbench-state.json" {
             if let Some(bytes) = self
-                .current_session_data()
+                .session_data
                 .as_ref()
                 .and_then(SessionData::state_bytes)
             {
@@ -1294,7 +1264,7 @@ impl ServiceRunner {
         }
         if path == "/session/structure.json" {
             if let Some(bytes) = self
-                .current_session_data()
+                .session_data
                 .as_ref()
                 .and_then(SessionData::structure_bytes)
             {
@@ -1362,10 +1332,6 @@ impl ServiceRunner {
         }
     }
     fn signal_return(&self) -> Result<(), String> {
-        #[cfg(any(unix, windows))]
-        if let Some(owner) = self.session_owner.get() {
-            return owner.close();
-        }
         let result = signal_return(
             self.in_memory_session,
             &self.return_signaled,
@@ -1374,10 +1340,6 @@ impl ServiceRunner {
         );
         self.volume_store.clear();
         result
-    }
-
-    fn current_session_data(&self) -> Option<SessionData> {
-        self.session_data.clone()
     }
 
     fn stream_orbital(&self, stream: &mut TcpStream, query: &[(String, String)]) {
@@ -1393,12 +1355,7 @@ impl ServiceRunner {
                 return;
             }
         };
-        let orbital_count = self
-            .current_session_data()
-            .as_ref()
-            .and_then(|data| backend::manifest_orbital_count_bytes(data.manifest_bytes()))
-            .or(self.orbital_count);
-        let request = match backend::parse_orbital_request(query, orbital_count) {
+        let request = match backend::parse_orbital_request(query, self.orbital_count) {
             Ok(value) => value,
             Err(message) => {
                 respond_json(
@@ -1796,6 +1753,13 @@ enum HttpRequestError {
 }
 
 fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, HttpRequestError> {
+    read_http_request_with_limit(stream, MAX_PLOT_EXPORT_BYTES)
+}
+
+fn read_http_request_with_limit(
+    stream: &mut TcpStream,
+    max_body_bytes: usize,
+) -> Result<HttpRequest, HttpRequestError> {
     const MAX_HEADERS: usize = 64 * 1024;
     const MAX_REQUEST_LINE: usize = 8 * 1024;
     let mut request = Vec::with_capacity(1024);
@@ -1865,7 +1829,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, HttpRequestE
         })
         .transpose()?
         .unwrap_or(0);
-    if body_length > MAX_PLOT_EXPORT_BYTES {
+    if body_length > max_body_bytes {
         return Err(HttpRequestError::TooLarge);
     }
     if headers.iter().any(|(name, value)| {
@@ -2018,6 +1982,16 @@ fn new_capability() -> Result<String, String> {
 fn has_capability(query: &[(String, String)], expected: &str) -> bool {
     let mut values = query.iter().filter(|(name, _)| name == "cap");
     matches!(values.next(), Some((_, value)) if value == expected) && values.next().is_none()
+}
+
+fn same_origin(headers: &[(String, String)], authority: &str, required: bool) -> bool {
+    let mut origins = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("origin"));
+    match origins.next() {
+        Some((_, origin)) => origin == &format!("http://{authority}") && origins.next().is_none(),
+        None => !required,
+    }
 }
 
 #[cfg(windows)]
@@ -3122,15 +3096,6 @@ mod tests {
         root: &Path,
         marker: &'static str,
     ) -> (HttpService, std::thread::JoinHandle<()>, PathBuf) {
-        start_memory_session_with_input(root, marker, None)
-    }
-
-    #[cfg(any(unix, windows))]
-    fn start_memory_session_with_input(
-        root: &Path,
-        marker: &'static str,
-        startup_file: Option<PathBuf>,
-    ) -> (HttpService, std::thread::JoinHandle<()>, PathBuf) {
         let frontend = root.join("frontend");
         let session = root.join("session-must-not-exist");
         fs::create_dir_all(&frontend).unwrap();
@@ -3148,7 +3113,6 @@ mod tests {
                     "format": "multiwfn-matterviz-workbench",
                     "version": 2,
                     "session": marker,
-                    "startupFile": startup_file,
                     "structure": {"path": "structure.json", "format": "json"},
                     "cubes": []
                 },
@@ -3169,7 +3133,7 @@ mod tests {
                 host: "127.0.0.1".to_owned(),
                 port: 0,
                 transport: None,
-                multiwfn_pid: Some(u64::from(std::process::id())),
+                multiwfn_pid: Some(1),
             },
             Some(ControlTransportConfig {
                 read_pipe: into_raw_pipe(bootstrap_read),
@@ -3428,32 +3392,6 @@ mod tests {
         assert!(duplicate_host.starts_with("HTTP/1.1 400 Bad Request"));
         let fragmented = fragmented_request(service.url(), "/session/manifest.json");
         assert!(fragmented.starts_with("HTTP/1.1 200 OK"));
-
-        for action in [
-            "status",
-            "preview",
-            "inspect",
-            "pick",
-            "run",
-            "cancel",
-            "open-result",
-            "open-results",
-            "parameter-path",
-        ] {
-            for method in ["GET", "POST"] {
-                let path = authorized_path(service.url(), &format!("/api/workflows/{action}"));
-                let expected = if method == "GET" {
-                    "HTTP/1.1 404"
-                } else {
-                    "HTTP/1.1 405"
-                };
-                let response = request(service.url(), method, &path);
-                assert!(
-                    response.starts_with(expected),
-                    "{method} {action}: {response}"
-                );
-            }
-        }
 
         let missing_capability = request(service.url(), "GET", "/api/return");
         assert!(missing_capability.starts_with("HTTP/1.1 403 Forbidden"));
@@ -3886,6 +3824,47 @@ mod tests {
         assert!(response.contains("\"wavefunction\":null"));
         assert!(!response.contains("\"session\":"));
         assert!(!root.join("session").exists());
+        let authority = authority(&page);
+        let post = |headers: &str, length: usize, body: &str| {
+            let mut stream = TcpStream::connect(&authority).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            write!(stream, "POST /api/workflows/cancel?cap={cap} HTTP/1.1\r\nHost: {authority}\r\n{headers}Content-Length: {length}\r\nConnection: close\r\n\r\n{body}").unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            response
+        };
+        // Even a valid capability must not authorize a cross-origin mutation.
+        for headers in [
+            String::new(),
+            "Origin: https://attacker.example\r\n".into(),
+            "Origin: null\r\n".into(),
+            format!("Origin: http://{authority}\r\nOrigin: http://{authority}\r\n"),
+        ] {
+            assert!(post(&headers, 2, "{}").starts_with("HTTP/1.1 403"));
+        }
+        let origin = format!("Origin: http://{authority}\r\n");
+        assert!(post(&origin, 2, "{}").starts_with("HTTP/1.1 200"));
+        // Reject from Content-Length alone, before waiting for an oversized body.
+        assert!(post(&origin, 256 * 1024 + 1, "").starts_with("HTTP/1.1 413"));
+        assert!(request_with_host(
+            &service.url,
+            "GET",
+            "/api/workflows/status",
+            "attacker.example"
+        )
+        .starts_with("HTTP/1.1 403"));
+        assert!(
+            request(&service.url, "GET", "/api/workflows/status?cap=wrong")
+                .starts_with("HTTP/1.1 403")
+        );
+        assert!(request(
+            &service.url,
+            "GET",
+            &format!("/api/workflows/status?cap={cap}&cap={cap}")
+        )
+        .starts_with("HTTP/1.1 403"));
         service.shutdown();
         fs::remove_dir_all(root).unwrap();
     }

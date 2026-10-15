@@ -166,8 +166,9 @@ builtins, text extraction, postprocessing, collection and citations. Each job
 uses its own directory and invokes the bundled Multiwfn as an external process.
 It does not attach to an already running Multiwfn or retain its calculation state.
 
-The normal Multiwfn desktop entry and its native visualization transport remain
-available independently. Windows engine/runner builds retain UTF-8 process
+The normal Multiwfn entry and its native visualization transport remain
+available independently. The workflow build compiles the original Multiwfn entry
+without menu substitutions. Windows engine/runner builds retain UTF-8 process
 manifests. Canonical Windows paths are normalized when written to legacy rc
 files or batch command lines, preserving Git Bash and external conf support.
 
@@ -182,15 +183,14 @@ bash tools/build_workflows_gui.sh
 ./build/banewfn_gui /absolute/path/to/startup.fchk
 ```
 
-Linux builds also generate `build/Multiwfn-Workflows.desktop`. Run
-`./build/install-desktop-entry.sh` once to add **Multiwfn** to your application
+Linux builds also generate `build/BaneWfn.desktop`. Run
+`./build/install-desktop-entry.sh` once to add **BaneWfn GUI** to your application
 menu. In a downloaded Linux package, run `./install-desktop-entry.sh` from the
 unpacked package instead. This registers the current absolute location for the
 current user; rerun it after moving the package. No root privileges are needed.
-The application icon opens the native startup-file chooser. The compiled
-`Multiwfn` entry locates its own directory even through a symbolic link, then
-starts the existing runtime wrapper and persistent host. `run-workflows-gui`
-remains available for compatibility. File managers may require marking a
+The application icon opens the workbench. The compiled `banewfn_gui` entry
+locates its own directory even through a symbolic link, then starts the existing
+runtime wrapper and desktop host. File managers may require marking a
 `.desktop` file as trusted before launching it outside the application menu.
 
 For `banewfn_gui`, omit the startup argument to choose a file in the workbench. The launcher's engine,
@@ -218,21 +218,20 @@ cmake --build build-matterviz-gui --parallel 4
 The frontend must be rebuilt and the existing Rust host must be rebuilt as
 described in `docs/build.md`. The workflow feature introduces no Python, Qt,
 JavaScript server or additional Rust package at runtime. The optional runner uses
-the C++ standard library. Python3 is additionally needed at configure time for
-the session entry generator on all three platforms, not at runtime. Existing native file dialogs
-select local paths.
+the C++ standard library. Python3 is used for developer checks and dependency
+updates, and is not required to configure the workflow runner. Existing native
+file dialogs select local paths.
 
 The default staging layout is:
 
 ```text
 Multiwfn_MatterVizGUI
-Multiwfn                         # Linux GUI executable
 banewfn_gui                      # independent workflow application
 install-desktop-entry.sh         # Linux application-menu registration
 run-workflows-gui
 settings.ini
 resources/
-  multiwfn.png                  # Linux application icon
+  banewfn.png                   # Linux application icon
   tools/matterviz-desktop
   tools/multiwfn-workflow
   workflows/conf/*.conf
@@ -310,17 +309,18 @@ in the job directory, inherits the workflow log streams and PATH, and returns
 its exit code to the workflow. It does not load interactive/login profiles;
 tools such as vcube must be installed and available on PATH.
 
-Session blocks must finish at Multiwfn's main menu. Only the final generated
-`q` in module/builtin expansion is removed. Literal `%raw` input is preserved;
-main-menu `q`/`-10` fails the workflow while keeping the engine alive. Automatic
-blocks suppress interactive GUI openings. A script that stops in a submenu or
-requests unexpected input cannot reach a cancellation boundary; this first
-version provides no manual input console or recovery from that condition.
+Each task supplies its complete menu input to a fresh external Multiwfn process.
+Normal generated quit commands are retained. Literal `%raw` input is preserved;
+the script must supply enough input to finish its chosen menu workflow. No
+terminal input console is attached. Cancel stops the runner and its descendant
+processes, including a task waiting for unexpected input.
 
 ## Inputs, logs and results
 
-The selected script's folder and companion files are copied into the fresh job
-directory. Relative paths within that folder keep working. A wavefunction chosen
+When selecting a library folder, the script's folder and companion files are
+copied into the fresh job directory. Opening one script stages only that script
+and adjacent configuration files; other companion paths must be supplied
+explicitly. A wavefunction chosen
 as the startup file is passed by absolute path and is not copied separately. Keep large wavefunction
 collections outside the script library. Companion inputs are bounded to 64 MiB,
 1024 files and eight directory levels; symlinks are rejected, and hidden files,
@@ -357,17 +357,11 @@ Related discussion: [BaneWfn stdin control, issue #58](https://github.com/Stardu
 and [native host architecture, PR #26](https://github.com/Stardust0831/Multiwfn/pull/26).
 The contribution is limited to frontend, host orchestration, optional build
 integration, tests and documentation. Root Fortran, `ext/` and `libreta_hybrid/`
-stay unchanged. The optional workflow build generates a copy of `Multiwfn.f90`
-with two entry/input substitutions; unique-anchor checks fail configuration if
-upstream changes those locations. This native adapter remains for the normal
-Multiwfn desktop launch and clean return. BaneWfn workflows use external batch
-processes and do not use this channel.
-
-Suggested issue/PR title: **Add an independent BaneWfn GUI with result rendering**.
-The review description should explain the independent entry, graphical parameters,
-isolated batch execution, result handoff, process-tree cancellation, optional
-dependencies, retained licenses and validation results in `EDIT_STATUS.md`.
-No GitHub issue or PR has been posted by this implementation task.
+stay unchanged. BaneWfn workflows use external batch processes, with no generated
+replacement entry, added scientific menu or in-process batch protocol. The
+optional dependency adds a C++17 runner; it uses the existing Rust/WebView shell
+and Svelte frontend. Missing workflow resources disable the workbench runner
+without changing ordinary Multiwfn execution.
 
 The BaneWfn revision and hashes are recorded in `frontend/workflows/banewfn.lock.json`.
 Maintain executor changes, conf and `scripts/gui/` recipes in the BaneWfn repository,
