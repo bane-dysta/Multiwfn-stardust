@@ -37,6 +37,13 @@ try {
   await page.goto(`${process.env.PREVIEW_URL || 'http://127.0.0.1:5205/'}?workbench=1&cap=test-capability`)
   const panel = page.getByRole('main', {name: 'BaneWfn', exact: true})
   await panel.getByLabel('网格精度', {exact:true}).waitFor()
+  for (const width of [900, 1200, 1920]) {
+    await page.setViewportSize({width, height: 820})
+    const bounds = await panel.boundingBox()
+    assert.ok(bounds && bounds.x === 0 && bounds.y === 0 && Math.abs(bounds.width - width) <= 1 && Math.abs(bounds.height - 820) <= 1,
+      `Workbench must fill the viewport: ${JSON.stringify(bounds)}`)
+  }
+  await page.setViewportSize({width: 1200, height: 820})
   assert.equal(await panel.getByRole('tab').count(), 3)
   assert.equal(await page.locator('canvas').count(), 0)
   assert.equal(await panel.getByLabel('网格精度', {exact:true}).inputValue(), '3')

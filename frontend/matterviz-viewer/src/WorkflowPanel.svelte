@@ -301,7 +301,7 @@
   details { margin-top: 18px; color: var(--ui-muted-foreground); }
   summary { cursor: pointer; }
   details textarea { margin-top: 12px; }
-  .workflow-panel { display: flex; flex-direction: column; position: fixed; inset: 0; margin: 0; padding: 0; width: 100%; height: 100dvh; overflow: hidden; background: var(--ui-background); color: var(--ui-foreground); font-size: 13px; }
+  .workflow-panel { display: flex; flex-direction: column; position: fixed; inset: 0; margin: 0; padding: 0; width: 100%; max-width: none; height: 100dvh; overflow: hidden; background: var(--ui-background); color: var(--ui-foreground); font-size: 13px; }
   .workflow-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 18px 24px; border-bottom: 1px solid var(--ui-border); }
   .workflow-title { display: flex; align-items: center; gap: 12px; }
   .workflow-mark { display: grid; place-items: center; width: 36px; height: 36px; background: var(--ui-accent); color: var(--ui-primary); border-radius: 10px; }

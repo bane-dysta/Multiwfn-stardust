@@ -1,5 +1,29 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Full-width standalone startup layout — 2026-10-16
+
+Continues snapshot 40e0d532d113eddbe98e3fff542162c05bfd6e14; cumulative baseline
+remains ea0befc3aad728bdd61ede9b45a68725df490f5d. The previous dialog-to-main
+conversion inherited MatterViz's global main max-width of 50em: the native
+1200 x 820 startup window showed a 650 x 820 panel. Explicitly reset max-width
+to none on the workbench root. The existing browser regression now checks that
+the panel fills 900, 1200 and 1920 pixel viewports as well as its 30/70 columns.
+
+Validation: svelte-check 0 errors / 0 warnings; production frontend build passed.
+Browser workbench acceptance passed. Windows root banewfn_gui.exe startup with
+no file reproduced the old 650px limit; the updated package fills the default
+1200 x 820 viewport and all three tested widths. Native screenshots visually
+checked. Evidence: build/layout-fix/{before,after}.{json,png} and browser/.
+No native or scientific source changed; native executables match the previous
+package byte-for-byte. Full Rust/scientific suites and CI were not rerun for CSS.
+
+Ready Windows entry:
+`C:\Users\Bane\Downloads\BaneWfn-GUI-layout-fix-20261016\banewfn_gui.exe`.
+Fresh ~101 MB package, inventory local-layout-fix-20261016, 81 files verified.
+The existing build runtime and frontend dist have the same rebuilt assets.
+Prior deliveries are preserved. The isolated Windows test profile and preview
+cache are removed after verification; small screenshots/logs remain in build/.
+
 ## Independent workflow entry only — 2026-10-16
 
 Continues accepted snapshot 2c3640d6993712defb6b506c0a8794fdcffd1689;
