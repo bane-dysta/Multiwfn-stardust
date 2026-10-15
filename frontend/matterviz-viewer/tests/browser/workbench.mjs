@@ -11,12 +11,19 @@ let sent
 let rendered
 let inspections = 0
 const status = {format: 'multiwfn-workflows', version: 1, available: true, session: null, runner: 'runner', library: '\\\\?\\C:\\BaneWfn\\scripts', results: '\\\\?\\D:\\分析\\苯_workflows', wavefunction: '\\\\?\\D:\\分析\\苯.fch', multiwfn: 'engine', scripts: [{id: 'density.bw', name: 'density.bw'}], catalogError: null, job: null}
+status.scripts.unshift({id: 'aaa.bw', name: 'aaa.bw'})
+status.selectedScript = 'density.bw'
 await page.route('**/api/workflows/**', async route => {
   const request = route.request(), url = new URL(request.url())
   assert.equal(url.searchParams.get('cap'), 'test-capability')
   const action = url.pathname.split('/').at(-1)
   let value = status
-  if (action === 'preview') value = {id: 'density.bw', source: '[grid]\n%process\nelectron\nspin\nend\n'}
+  if (action === 'preview') value = {id: url.searchParams.get('script'), source: '[grid]\n%process\nelectron\nspin\nend\n'}
+  if (action === 'pick') {
+    assert.equal(request.postDataJSON().kind, 'script')
+    status.scripts = [{id: 'chosen.bwc', name: 'chosen.bwc'}]
+    status.selectedScript = 'chosen.bwc'
+  }
   if (action === 'inspect') {
     inspections++
     const params = request.postDataJSON().parameters
@@ -37,6 +44,7 @@ try {
   await page.goto(`${process.env.PREVIEW_URL || 'http://127.0.0.1:5205/'}?workbench=1&cap=test-capability`)
   const panel = page.getByRole('main', {name: 'BaneWfn', exact: true})
   await panel.getByLabel('网格精度', {exact:true}).waitFor()
+  assert.equal(await panel.locator('.workflow-script.selected').getAttribute('title'), 'density.bw')
   assert.ok(await panel.locator('img.workflow-mark').evaluate(img => img.complete && img.naturalWidth > 0), 'BaneWfn icon must load')
   for (const width of [900, 1200, 1920]) {
     await page.setViewportSize({width, height: 820})
@@ -102,5 +110,8 @@ try {
   assert.equal(await panel.getByRole('button', {name:'渲染所选', exact:true}).isEnabled(), false)
   assert.deepEqual(errors, [])
   await page.screenshot({path: `${artifacts}/banewfn-results.png`})
+  await panel.getByRole('button', {name:'打开工作流脚本', exact:true}).click()
+  await page.waitForFunction(() => document.querySelector('.workflow-script.selected')?.title === 'chosen.bwc')
+  assert.equal(await panel.getByRole('tab', {name:'参数设置', exact:true}).getAttribute('aria-selected'), 'true')
   console.log('PASS: independent window, bilingual labels/help/options, preserved selections, 30/70 layout, native preview and explicit overrides')
 } finally { await browser.close() }

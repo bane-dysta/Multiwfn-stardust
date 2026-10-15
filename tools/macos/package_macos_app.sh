@@ -236,6 +236,26 @@ if [[ -n "$WORKFLOW_RUNNER" ]]; then
   /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName BaneWfn GUI' "$WORKBENCH_BUNDLE/Contents/Info.plist" || \
     /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string BaneWfn GUI' "$WORKBENCH_BUNDLE/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier org.banewfn.workbench' "$WORKBENCH_BUNDLE/Contents/Info.plist"
+  python3 - "$WORKBENCH_BUNDLE/Contents/Info.plist" <<'PY'
+import plistlib
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+with path.open('rb') as stream:
+    info = plistlib.load(stream)
+info['CFBundleDocumentTypes'].append({
+    'CFBundleTypeName': 'BaneWfn workflow script', 'CFBundleTypeRole': 'Viewer',
+    'LSHandlerRank': 'Alternate', 'CFBundleTypeExtensions': ['bw', 'bwc'],
+    'LSItemContentTypes': ['org.banewfn.workflow'],
+})
+info['UTExportedTypeDeclarations'] = [{
+    'UTTypeIdentifier': 'org.banewfn.workflow', 'UTTypeConformsTo': ['public.plain-text'],
+    'UTTypeDescription': 'BaneWfn workflow script',
+    'UTTypeTagSpecification': {'public.filename-extension': ['bw', 'bwc']},
+}]
+with path.open('wb') as stream:
+    plistlib.dump(info, stream)
+PY
   codesign --force --deep -s - "$WORKBENCH_BUNDLE"
   codesign -vvv --deep "$WORKBENCH_BUNDLE"
 fi

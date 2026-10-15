@@ -24,6 +24,10 @@ if [[ ! -x "$BINARY" ]]; then
   exit 1
 fi
 
+if [[ -f "$RESOURCES_DIR/banewfn-workbench" ]]; then
+  exec "$RESOURCES_DIR/tools/matterviz-desktop" --workbench "$@"
+fi
+
 INPUT_FILE=""
 # Handle arguments passed by LaunchServices or CLI
 for arg in "$@"; do
@@ -38,12 +42,6 @@ for arg in "$@"; do
 done
 
 # Launch Multiwfn
-if [[ -f "$RESOURCES_DIR/banewfn-workbench" ]]; then
-  if [[ -n "$INPUT_FILE" ]]; then
-    exec "$RESOURCES_DIR/tools/matterviz-desktop" --workbench "$INPUT_FILE"
-  fi
-  exec "$RESOURCES_DIR/tools/matterviz-desktop" --workbench
-fi
 if [[ -n "$INPUT_FILE" ]]; then
   # When MULTIWFN_DIRECT_GUI=1 is set (e.g. by native Cocoa launcher on Finder open):
   # Workflow-enabled bundles use a desktop-owned persistent engine.

@@ -53,12 +53,16 @@ impl WorkbenchService {
         frontend: PathBuf,
         engine: PathBuf,
         startup: Option<&Path>,
+        script: Option<&Path>,
     ) -> Result<Self, String> {
         let frontend = frontend.canonicalize().map_err(|e| e.to_string())?;
         if !frontend.join("index.html").is_file() {
             return Err("BaneWfn frontend is missing".into());
         }
         let workflows = Arc::new(WorkflowManager::standalone(engine, startup));
+        if let Some(script) = script {
+            workflows.select("script", script)?;
+        }
         let listener = bind("127.0.0.1", 0)?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let authority = listener
@@ -168,12 +172,17 @@ impl WorkbenchService {
                                             let kind = value["kind"]
                                                 .as_str()
                                                 .ok_or("Invalid selection")?;
-                                            if let Some(path) =
+                                            let selected = if let Some(path) =
                                                 crate::file_dialog::select_workflow_path(kind)?
                                             {
                                                 manager.select(kind, &path)?;
-                                            }
-                                            Ok(manager.status())
+                                                true
+                                            } else {
+                                                false
+                                            };
+                                            let mut status = manager.status();
+                                            status["selectionChanged"] = json!(selected);
+                                            Ok(status)
                                         }
                                         "run" => {
                                             manager.start(&value)?;
@@ -3857,7 +3866,8 @@ mod tests {
         let frontend = root.join("frontend");
         fs::create_dir_all(&frontend).unwrap();
         fs::write(frontend.join("index.html"), "BaneWfn").unwrap();
-        let service = super::WorkbenchService::start(frontend, root.join("engine"), None).unwrap();
+        let service =
+            super::WorkbenchService::start(frontend, root.join("engine"), None, None).unwrap();
         let page = url::Url::parse(&service.url).unwrap();
         let cap = page
             .query_pairs()

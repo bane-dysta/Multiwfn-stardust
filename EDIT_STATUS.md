@@ -1,5 +1,63 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Shared upstream executor and workflow-file entry — 2026-10-16
+
+Continues 63c18ec4fe17b3da1e4aac186ab46cb0126ffa64; cumulative baseline remains
+ea0befc3aad728bdd61ede9b45a68725df490f5d. General quoting, CRLF, Git Bash and
+batch behavior now belong to BaneWfn 1.6.0rc2. Its scripts/gui directory owns all
+26 GUI recipes. The offline dependency lock pins upstream snapshot
+6eb888d333275c2272c1548b9c8d70a28c3733b0 and hashes 86 exported files. The sync
+tool reads an explicit Git revision, normalizes text transport, and refuses local
+edits to locked content. CI checks the lock. No moving-branch/network dependency.
+The optional build compiles upstream src/CMakeLists.txt and its standard CLI main;
+the separate C++ wrapper and Windows Git Bash fork are removed. The host supplies
+--batch, while ordinary CLI invocation retains terminal modes.
+
+banewfn_gui accepts .bw/.bwc paths, --script, and -w/--wfn, including spaces,
+Chinese names and uppercase extensions. Explicit script startup selects the
+requested item rather than the first entry; external files use their parent as
+the library. A single-file launch stages only the selected script and conf files,
+avoiding unrelated large downloads; folder selection retains full companion-file
+staging. Opening alone never runs a job. Added the translated script-picker
+button; cancelling a picker retains current selection. Normal molecular-file and
+no-file launches remain available. The Windows helper adds per-user Open with
+entries, preserving existing defaults. Linux supplies a workflow MIME type, and
+the macOS workbench declares extensions and forwards all workbench arguments.
+
+Validation: complete Linux GUI build passed with Svelte 0 errors / 0 warnings;
+Windows desktop and static runner builds passed. Rust 152 passed, 2 opt-in live
+tests skipped in that suite; clippy all-targets -D warnings and fmt passed.
+Frontend 303 passed / 1 skipped; first invocation used the wrong cwd and was
+replaced by the complete passing run from frontend/matterviz-viewer. Socket
+tests required execution outside the sandbox. Runner mock tests 9/9; Linux and
+Windows package checks passed for all 26 recipe inspections/dry runs, shell
+dispatch and native single-atom I/O. Linux desktop tests 4/4, macOS package
+contracts 8/8, session-entry tests 2/2 and native config/locked-source checks pass.
+Browser acceptance covers preselection, file-picker action and all prior workbench
+interactions. Windows association tests use and remove a unique test registry key;
+actual default associations are unchanged.
+
+Windows root-entry native acceptance: no-file startup has 26 scripts; an external
+Chinese/spaced BWC plus -w loads the requested script, excluding unrelated scripts;
+--script alone opens preview with no molecule/job. Explicit Run completed a
+single-core benzene Mayer analysis through the shared executor. bndmat.txt is
+valid, C1-C2 = 1.45268106, matching prior acceptance. Final grouped script buttons
+were rechecked without repeating the calculation. Evidence: build/shared-core/.
+The canonical repository also passes all 5 CTest groups and direct native Windows
+CLI batch/ordinary-interaction, JSON and Git Bash tests. Its Windows binary is
+/home/bane/smokes/banewfn/build-win/bin/banewfn.exe (~8 MB retained build tree).
+No scientific source changed; the Windows scientific engine matches the prior
+package byte-for-byte. CI and interactive macOS acceptance were not rerun.
+
+Ready Windows GUI entry:
+`C:\Users\Bane\Downloads\BaneWfn-GUI-shared-core-20261016\banewfn_gui.exe`.
+The package includes Register-BaneWfn-GUI.cmd/.ps1; registration is opt-in.
+Linux entry: /home/bane/smokes/Multiwfn-stardust/build/banewfn_gui.
+Separate patches are delivered for BaneWfn and Multiwfn. Existing branches and
+Git indexes are retained. Small screenshots/logs and the successful Mayer case
+remain; temporary browser profiles, source-sync patches and helper caches are
+cleaned after verification. Existing build caches support subsequent updates.
+
 ## Bundled recipe library and BaneWfn icon — 2026-10-16
 
 Continues snapshot 438267a2292bc2283369202c80f2c6ded6dbfcdf; cumulative baseline

@@ -70,6 +70,7 @@ fn independent_workbench_runs_without_session() {
         resources.join("frontend/matterviz-viewer/dist"),
         root.join(format!("Multiwfn_MatterVizGUI{suffix}")),
         Some(&input),
+        None,
     )
     .unwrap();
     let page = url::Url::parse(&service.url).unwrap();

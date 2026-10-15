@@ -31,6 +31,7 @@ class LinuxDesktopEntryTests(unittest.TestCase):
         tools.mkdir(parents=True)
         shutil.copy2(ROOT / "frontend/matterviz-desktop/icons/icon.png", self.app / "resources/multiwfn.png")
         shutil.copy2(ROOT / "frontend/workflows/icons/banewfn.png", self.app / "resources/banewfn.png")
+        shutil.copy2(ROOT / "tools/linux/banewfn-mime.xml", self.app / "resources/banewfn-mime.xml")
         host = tools / "matterviz-desktop"
         host.write_text('#!/bin/sh\nprintf "%s\\0" "$@" > "$MULTIWFN_TEST_CAPTURE"\nexit 17\n')
         host.chmod(0o755)

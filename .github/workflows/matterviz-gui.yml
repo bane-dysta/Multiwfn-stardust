@@ -111,6 +111,7 @@ jobs:
 
       - name: Test optional BaneWfn batch runner
         run: |
+          python3 tools/sync_banewfn.py --check
           cmake -S frontend/workflows -B build/workflow-runner -DCMAKE_BUILD_TYPE=Release
           cmake --build build/workflow-runner --parallel 4
           python3 -m unittest discover -s tests -p test_workflow_runner.py -v
@@ -346,7 +347,8 @@ jobs:
             cp build-matterviz-package/Multiwfn build-matterviz-package/banewfn_gui build-matterviz-package/run-workflows-gui \
               build-matterviz-package/install-desktop-entry.sh "package/$pkg/"
             cp build-matterviz-package/resources/multiwfn.png \
-              build-matterviz-package/resources/banewfn.png "package/$pkg/resources/"
+              build-matterviz-package/resources/banewfn.png \
+              build-matterviz-package/resources/banewfn-mime.xml "package/$pkg/resources/"
             cp build-matterviz-package/resources/tools/matterviz-file-dialog "package/$pkg/resources/tools/"
           fi
           cp docs/workflows.md "package/$pkg/README-Workflows.md"
@@ -662,6 +664,7 @@ jobs:
           cp build-matterviz-package/Multiwfn_MatterVizGUI.exe "package/$PKG/Multiwfn_MatterVizGUI.exe"
           cp build-matterviz-package/Multiwfn.exe "package/$PKG/Multiwfn.exe"
           cp build-matterviz-package/banewfn_gui.exe "package/$PKG/banewfn_gui.exe"
+          cp tools/windows/Register-BaneWfn-GUI.ps1 tools/windows/Register-BaneWfn-GUI.cmd "package/$PKG/"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop.exe \
             "package/$PKG/resources/tools/matterviz-desktop.exe"
           if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then

@@ -37,7 +37,7 @@ class WorkflowRunnerTests(unittest.TestCase):
         script = self.case / f"analysis script.{extension}"
         script.write_text(source)
         return subprocess.run(
-            [str(RUNNER), str(script), "--wfn", str(self.wfn), "--cores", "2", *options],
+            [str(RUNNER), str(script), "--batch", "--wfn", str(self.wfn), "--cores", "2", *options],
             cwd=self.case, stdin=subprocess.DEVNULL, text=True, capture_output=True, timeout=10,
         )
 

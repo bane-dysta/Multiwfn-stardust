@@ -3,14 +3,21 @@ project(MultiwfnWorkflows LANGUAGES CXX)
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/banewfn/VERSION" BANEWFN_VERSION)
 string(STRIP "${BANEWFN_VERSION}" BANEWFN_VERSION)
-set(BANEWFN_SOURCES
-  common/citation.cpp common/config.cpp common/grep_dsl.cpp
-  common/inline_conf.cpp common/input.cpp common/ui.cpp common/utils.cpp
-  common/gui.cpp
-  banewfn/application.cpp banewfn/grep_engine.cpp banewfn/promolecule.cpp
-)
-list(TRANSFORM BANEWFN_SOURCES PREPEND "banewfn/src/")
-add_executable(multiwfn-workflow main.cpp ${BANEWFN_SOURCES})
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+include(GNUInstallDirs)
+if(MSVC)
+  add_compile_options(/W4 /utf-8)
+else()
+  add_compile_options(-Wall -Wextra)
+endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
+  set(BANEWFN_FILESYSTEM_LIB stdc++fs)
+endif()
+add_subdirectory(banewfn/src EXCLUDE_FROM_ALL)
+add_executable(multiwfn-workflow banewfn/apps/banewfn/main.cpp)
+target_link_libraries(multiwfn-workflow PRIVATE banewfn_core)
 if(WIN32)
   if(MSVC)
     target_link_options(multiwfn-workflow PRIVATE "/MANIFEST:EMBED"
@@ -40,4 +47,4 @@ if(MULTIWFN_WORKFLOW_STATIC AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 install(TARGETS multiwfn-workflow RUNTIME DESTINATION bin/resources/tools COMPONENT workflows)
 install(DIRECTORY banewfn/conf scripts DESTINATION bin/resources/workflows COMPONENT workflows)
-install(FILES banewfn/LICENSE NOTICE.md DESTINATION bin/resources/workflows COMPONENT workflows)
+install(FILES banewfn/LICENSE NOTICE.md banewfn.lock.json DESTINATION bin/resources/workflows COMPONENT workflows)

@@ -39,6 +39,8 @@ pub mod volume_store;
 pub mod workflow_results;
 #[path = "../../../frontend/matterviz-desktop/src/workflows.rs"]
 pub mod workflows;
+#[path = "../../../frontend/matterviz-desktop/src/workbench_args.rs"]
+pub mod workbench_args;
 
 // Native selection is covered by desktop-host tests; this headless harness
 // exercises the same service and workflow process manager without a WebView.

@@ -10,7 +10,7 @@ pub fn select_file(_output: &Path) -> io::Result<Option<PathBuf>> {
 }
 
 pub fn select_workflow_path(kind: &str) -> Result<Option<PathBuf>, String> {
-    if !matches!(kind, "library" | "results" | "wavefunction") {
+    if !matches!(kind, "library" | "results" | "wavefunction" | "script") {
         return Err("Invalid workflow selection".into());
     }
     #[cfg(target_os = "linux")]
@@ -27,6 +27,10 @@ pub fn select_workflow_path(kind: &str) -> Result<Option<PathBuf>, String> {
             .pick_folder()),
         "wavefunction" => Ok(dialog
             .set_title("Choose the workflow startup file")
+            .pick_file()),
+        "script" => Ok(dialog
+            .set_title("Open workflow script")
+            .add_filter("BaneWfn scripts", &["bw", "bwc"])
             .pick_file()),
         _ => Err("Invalid workflow selection".into()),
     }

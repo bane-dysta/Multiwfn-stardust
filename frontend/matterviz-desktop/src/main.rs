@@ -20,6 +20,7 @@ mod transport;
 mod updater;
 pub mod volume_protocol;
 pub mod volume_store;
+mod workbench_args;
 mod workflow_results;
 mod workflows;
 
@@ -137,11 +138,12 @@ fn launch_workbench() -> ExitCode {
                 "Multiwfn_MatterVizGUI"
             })
         };
-        let startup = env::args_os().nth(2).map(std::path::PathBuf::from);
+        let args = workbench_args::WorkbenchArgs::parse(env::args_os().skip(2))?;
         let service = service::WorkbenchService::start(
             resources.join("frontend/matterviz-viewer/dist"),
             engine,
-            startup.as_deref(),
+            args.startup.as_deref(),
+            args.script.as_deref(),
         )?;
         let page = Url::parse(&service.url).map_err(|e| e.to_string())?;
         eprintln!("BaneWfn workbench: {}", service.url);

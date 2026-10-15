@@ -28,6 +28,7 @@ export const zh = {
   'Workflows': '工作流',
   'Load startup file': '载入启动文件',
   'Choose script folder': '选择脚本目录',
+  'Open workflow script': '打开工作流脚本',
   'Scripts': '脚本',
   'No .bw or .bwc scripts found.': '目录中没有 .bw 或 .bwc 脚本。',
   'Choose startup file': '选择启动文件',

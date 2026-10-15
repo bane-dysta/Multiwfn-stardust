@@ -29,10 +29,12 @@ export type WorkflowStatus = {
   wavefunction: string | null
   multiwfn: string | null
   scripts: Array<{ id: string; name: string }>
+  selectedScript?: string | null
+  selectionChanged?: boolean
   catalogError: string | null
   job: WorkflowJob | null
 }
-export type WorkflowSelection = 'library' | 'results' | 'wavefunction'
+export type WorkflowSelection = 'library' | 'results' | 'wavefunction' | 'script'
 export type WorkflowRequest = { script: string; cores: number; variables: string[]; dryRun: boolean; parameters?: Record<string, string> }
 type WorkflowTranslations = Partial<Record<'zh' | 'en', string>>
 export type WorkflowField = { id: string; name: string; group: string; label: string; labels?: WorkflowTranslations; type: string; value: string; expression?: string; source: string; help?: string; helps?: WorkflowTranslations; unit?: string; options: Array<{ value: string; label: string; labels?: WorkflowTranslations }> }

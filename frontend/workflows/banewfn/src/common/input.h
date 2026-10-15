@@ -62,6 +62,7 @@ struct ModuleTask {
 
 // Execution options
 struct ExecutionOptions {
+    bool batch = false;
     std::string parametersJson;
     bool dryrun = false;
     bool debug = false;
@@ -111,7 +112,7 @@ public:
     static bool resolveInteractiveCustomVars(std::map<std::string, std::vector<std::string>>& customVars);
     // Apply placeholder replacement to all tasks using wavefunction filename and custom variables
     static void applyPlaceholderReplacement(std::vector<ModuleTask>& tasks, const std::string& wfnFile, const std::map<std::string, std::vector<std::string>>& customVars = std::map<std::string, std::vector<std::string>>());
-    
+
 private:
     // Replace input file placeholders ($input and ${input}) with wavefunction filename without extension
     // Also support custom variables from command line or file header

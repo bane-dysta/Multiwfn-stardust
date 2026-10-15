@@ -242,6 +242,12 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
     target_compile_definitions(banewfn_gui PRIVATE BANEWFN_ENTRY=1)
     target_link_libraries(banewfn_gui PRIVATE user32)
     install(TARGETS banewfn_gui RUNTIME DESTINATION bin COMPONENT workflows)
+    configure_file(tools/windows/Register-BaneWfn-GUI.ps1
+      "${CMAKE_CURRENT_BINARY_DIR}/Register-BaneWfn-GUI.ps1" COPYONLY)
+    configure_file(tools/windows/Register-BaneWfn-GUI.cmd
+      "${CMAKE_CURRENT_BINARY_DIR}/Register-BaneWfn-GUI.cmd" COPYONLY)
+    install(FILES tools/windows/Register-BaneWfn-GUI.ps1 tools/windows/Register-BaneWfn-GUI.cmd
+      DESTINATION bin COMPONENT workflows)
     if(MINGW)
       target_link_options(banewfn_gui PRIVATE -municode)
     endif()
@@ -262,6 +268,8 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
       "${CMAKE_CURRENT_BINARY_DIR}/resources/multiwfn.png" COPYONLY)
     configure_file(frontend/workflows/icons/banewfn.png
       "${CMAKE_CURRENT_BINARY_DIR}/resources/banewfn.png" COPYONLY)
+    configure_file(tools/linux/banewfn-mime.xml
+      "${CMAKE_CURRENT_BINARY_DIR}/resources/banewfn-mime.xml" COPYONLY)
     file(CHMOD "${CMAKE_CURRENT_BINARY_DIR}/install-desktop-entry.sh"
       PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
     add_custom_target(multiwfn_linux_desktop ALL
@@ -276,6 +284,7 @@ if(MULTIWFN_WITH_WORKFLOWS AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
       DESTINATION bin/resources RENAME multiwfn.png COMPONENT workflows)
     install(FILES frontend/workflows/icons/banewfn.png
       DESTINATION bin/resources COMPONENT workflows)
+    install(FILES tools/linux/banewfn-mime.xml DESTINATION bin/resources COMPONENT workflows)
   endif()
   configure_file(tools/run-workflows-gui "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui" COPYONLY)
   file(CHMOD "${CMAKE_CURRENT_BINARY_DIR}/run-workflows-gui"
@@ -478,6 +487,7 @@ if(MULTIWFN_WITH_WORKFLOWS)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "${CMAKE_CURRENT_SOURCE_DIR}/frontend/workflows/banewfn/LICENSE"
       "${CMAKE_CURRENT_SOURCE_DIR}/frontend/workflows/NOTICE.md"
+      "${CMAKE_CURRENT_SOURCE_DIR}/frontend/workflows/banewfn.lock.json"
       "${CMAKE_CURRENT_BINARY_DIR}/resources/workflows"
     DEPENDS multiwfn-workflow
     COMMENT "Staging optional BaneWfn workflow resources"

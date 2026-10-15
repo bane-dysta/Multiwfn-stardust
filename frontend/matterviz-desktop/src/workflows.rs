@@ -25,6 +25,7 @@ struct Job {
 
 struct State {
     library: Option<PathBuf>,
+    selected_script: Option<String>,
     results: Option<PathBuf>,
     results_selected: bool,
     wavefunction: Option<PathBuf>,
@@ -160,6 +161,7 @@ impl WorkflowManager {
             multiwfn,
             state: Arc::new(Mutex::new(State {
                 library,
+                selected_script: None,
                 results: None,
                 results_selected: false,
                 wavefunction: None,
@@ -178,7 +180,25 @@ impl WorkflowManager {
             return Err("A workflow is still running".into());
         }
         match kind {
-            "library" if path.is_dir() => state.library = Some(path),
+            "library" if path.is_dir() => {
+                state.library = Some(path);
+                state.selected_script = None;
+            }
+            "script" if path.is_file() && crate::workbench_args::is_script(&path) => {
+                read_script(&path)?;
+                let parent = path.parent().ok_or("Invalid script folder")?;
+                let id = if let Some(root) =
+                    state.library.as_ref().filter(|root| path.starts_with(root))
+                {
+                    path.strip_prefix(root).map_err(|error| error.to_string())?
+                } else {
+                    state.library = Some(parent.to_owned());
+                    path.file_name()
+                        .map(Path::new)
+                        .ok_or("Invalid script name")?
+                };
+                state.selected_script = Some(id.to_string_lossy().replace('\\', "/"));
+            }
             "results" if path.is_dir() => {
                 state.results = Some(path);
                 state.results_selected = true;
@@ -200,7 +220,9 @@ impl WorkflowManager {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let mut scripts = Vec::new();
         let mut catalog_error = None;
-        if let Some(root) = &state.library {
+        if let Some(id) = &state.selected_script {
+            scripts.push(json!({"id":id, "name":Path::new(id).file_name().unwrap_or_default().to_string_lossy()}));
+        } else if let Some(root) = &state.library {
             if let Err(error) = scan_scripts(root, root, 0, &mut scripts) {
                 catalog_error = Some(error);
             }
@@ -236,7 +258,7 @@ impl WorkflowManager {
         json!({"format":"multiwfn-workflows", "version":1, "available":self.runner.is_some(),
             "runner":self.runner, "library":state.library, "results":state.results,
             "wavefunction":state.wavefunction, "multiwfn":self.multiwfn,
-            "scripts":scripts, "catalogError":catalog_error, "job":job})
+            "scripts":scripts, "selectedScript":state.selected_script, "catalogError":catalog_error, "job":job})
     }
 
     pub fn open_result(&self, request: &Value, frontend: &Path) -> Result<Value, String> {
@@ -349,10 +371,23 @@ impl WorkflowManager {
         let cancel = Arc::new(AtomicBool::new(false));
         let prepared = (|| -> Result<(Child, ProcessTree), String> {
             let mut budget = CopyBudget::default();
-            copy_inputs(source_dir, &directory, &results, 0, &mut budget)?;
+            let single_script = state.selected_script.is_some();
+            if single_script {
+                fs::copy(
+                    &script,
+                    directory.join(script.file_name().ok_or("Invalid script name")?),
+                )
+                .map_err(|error| error.to_string())?;
+            } else {
+                copy_inputs(source_dir, &directory, &results, 0, &mut budget)?;
+            }
             let conf = directory.join(".workflow-conf");
             fs::create_dir(&conf).map_err(|e| e.to_string())?;
             copy_conf(&self.conf, &conf)?;
+            if single_script {
+                copy_conf(source_dir, &conf)?;
+                copy_conf(&source_dir.join("conf"), &conf)?;
+            }
             copy_conf(&directory, &conf)?;
             copy_conf(&directory.join("conf"), &conf)?;
             let rc = format!("Multiwfn_exec=\"{}\"\nconfpath=\"{}\"\ncores={cores}\ncitations_output=references.bib\n",
@@ -381,6 +416,7 @@ impl WorkflowManager {
             }
             command
                 .arg(script.file_name().ok_or("Invalid script name")?)
+                .arg("--batch")
                 .arg("--cores")
                 .arg(cores.to_string());
             if let Some(wfn) = &state.wavefunction {
@@ -586,10 +622,7 @@ fn validate_path(path: &Path) -> Result<(), String> {
     Ok(())
 }
 fn is_script(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|s| s.to_str()),
-        Some("bw" | "bwc")
-    )
+    crate::workbench_args::is_script(path)
 }
 fn script_path(root: Option<&Path>, id: &str) -> Result<PathBuf, String> {
     let root = root.ok_or("Choose a script folder")?;
@@ -862,6 +895,58 @@ mod tests {
             self.manager.shutdown();
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[test]
+    fn opening_an_external_script_selects_it_without_execution() {
+        let f = Fixture::new("touch unexpected-execution");
+        let external = f.root.join("external scripts");
+        fs::create_dir(&external).unwrap();
+        let script = external.join("chosen file.BWC");
+        fs::write(&script, "%command\necho ready\nend\n").unwrap();
+        f.manager.select("script", &script).unwrap();
+        let status = f.manager.status();
+        assert_eq!(status["selectedScript"], "chosen file.BWC");
+        assert_eq!(status["library"], json!(external));
+        assert_eq!(status["scripts"][0]["id"], "chosen file.BWC");
+        assert!(status["job"].is_null());
+        assert!(!f.root.join("unexpected-execution").exists());
+        f.manager
+            .select("library", &f.root.join("scripts"))
+            .unwrap();
+        assert!(f.manager.status()["selectedScript"].is_null());
+    }
+
+    #[test]
+    fn single_script_start_skips_unrelated_downloads_and_keeps_local_conf() {
+        let f = Fixture::new("test -f chosen.bwc && test -f .workflow-conf/local.conf && test ! -e unrelated.download");
+        let external = f.root.join("downloads");
+        fs::create_dir(&external).unwrap();
+        fs::write(external.join("chosen.bwc"), "%command\necho ready\nend\n").unwrap();
+        fs::write(external.join("local.conf"), "[main]\nq\n").unwrap();
+        fs::write(
+            external.join("a-first.bw"),
+            "%command\necho unrelated\nend\n",
+        )
+        .unwrap();
+        File::create(external.join("unrelated.download"))
+            .unwrap()
+            .set_len(MAX_LIBRARY_BYTES + 1)
+            .unwrap();
+        f.manager
+            .select("script", &external.join("chosen.bwc"))
+            .unwrap();
+        assert_eq!(f.manager.status()["scripts"].as_array().unwrap().len(), 1);
+        f.manager
+            .start(&json!({"script":"chosen.bwc","cores":1,"variables":[],"dryRun":false}))
+            .unwrap();
+        let status = f.finish();
+        assert_eq!(status["job"]["state"], "completed");
+        assert!(!status["job"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|name| name == "unrelated.download"));
     }
 
     #[test]

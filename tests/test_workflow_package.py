@@ -20,6 +20,10 @@ def check(root):
     library = root / "resources/workflows"
     check_workbench(runner)
     check_shell(runner)
+    if os.name == "nt":
+        subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                        str(Path(__file__).with_name("test_windows_workflow_association.ps1")),
+                        "-Package", str(root)], check=True, timeout=30)
     for required in (runner, engine, library / "LICENSE", library / "NOTICE.md"):
         assert required.is_file(), f"Missing package file: {required}"
     with tempfile.TemporaryDirectory(prefix="workflow package ") as directory:

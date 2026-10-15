@@ -97,7 +97,7 @@
     if (status?.job?.directory !== next.job?.directory) { resultUnits = {}; selectedResults = [] }
     else selectedResults = selectedResults.filter(file => next.job?.cubes?.some(cube => cube.file === file))
     status = next
-    if (!next.scripts.some((script) => script.id === selected)) void preview(next.scripts[0]?.id ?? '')
+    if (!next.scripts.some((script) => script.id === selected)) void preview(next.selectedScript ?? next.scripts[0]?.id ?? '')
   }
   const schedule = (): void => {
     if (timer) clearTimeout(timer)
@@ -111,8 +111,11 @@
     if (busy) return
     busy = true; error = ''
     try {
-      apply(await client.pick(kind))
+      const next = await client.pick(kind)
+      if (next.selectionChanged === false) return
+      apply(next)
       if (kind === 'library') await preview(status?.scripts[0]?.id ?? '')
+      else if (kind === 'script') { activeTab = 'settings'; await preview(status?.selectedScript ?? selected) }
       else if (kind === 'wavefunction') await inspect()
     } catch (reason) { show_error(reason) }
     finally { busy = false; schedule() }
@@ -158,14 +161,17 @@
         <div class="workflow-catalog">
           <div class="workflow-section-heading">
             <h3 id="workflow-library-heading">{$t('Scripts')} <span class="workflow-count">{status?.scripts.length ?? 0}</span></h3>
+            <div class="workflow-library-actions">
+            <button class="workflow-folder" type="button" aria-label={$t('Open workflow script')} title={$t('Open workflow script')} onclick={() => pick('script')} disabled={busy || running}><FileCode2 size={17} /></button>
             <button class="workflow-folder" type="button" aria-label={$t('Choose script folder')} title={$t('Choose script folder')} onclick={() => pick('library')} disabled={busy || running}><FolderOpen size={17} /></button>
+            </div>
           </div>
           <p class="workflow-library-path" title={display_path(status?.library)}>{display_path(status?.library) || '—'}</p>
           {#if status?.catalogError}<p class="workflow-error" role="alert">{status.catalogError}</p>{/if}
           <div class="workflow-script-list" role="group" aria-label={$t('Scripts')}>
             {#each status?.scripts ?? [] as script}
               <button class="workflow-script" class:selected={selected === script.id} type="button" aria-pressed={selected === script.id} title={script.id} disabled={busy || running} onclick={() => preview(script.id)}>
-                <FileCode2 size={17} /><span>{script.id}</span><span class="workflow-extension">{script.id.endsWith('.bwc') ? 'BWC' : 'BW'}</span>
+                <FileCode2 size={17} /><span>{script.id}</span><span class="workflow-extension">{script.id.toLowerCase().endsWith('.bwc') ? 'BWC' : 'BW'}</span>
               </button>
             {/each}
             {#if status && !status.scripts.length}<p class="workflow-empty">{$t('No .bw or .bwc scripts found.')}</p>{/if}
@@ -306,6 +312,7 @@
   .workflow-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 18px 24px; border-bottom: 1px solid var(--ui-border); }
   .workflow-title { display: flex; align-items: center; gap: 12px; }
   .workflow-mark { width: 40px; height: 40px; object-fit: contain; border-radius: 7px; }
+  .workflow-library-actions { display: flex; gap: 6px; }
   h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
   h3 { margin: 0; font-size: 14px; font-weight: 600; }
   button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; height: auto; padding: 7px 12px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-background); color: var(--ui-foreground); font: inherit; cursor: pointer; }

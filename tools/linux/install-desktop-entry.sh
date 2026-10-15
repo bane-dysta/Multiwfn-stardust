@@ -68,4 +68,12 @@ Categories=Education;Science;Chemistry;
 StartupNotify=false
 EOF
   chmod 755 "$output_dir/BaneWfn.desktop"
+  printf 'MimeType=text/x-banewfn;\n' >> "$output_dir/BaneWfn.desktop"
+  if [[ $# == 0 ]]; then
+    mime_root="${XDG_DATA_HOME:-$HOME/.local/share}/mime"
+    mkdir -p "$mime_root/packages"
+    cp "$app_root/resources/banewfn-mime.xml" "$mime_root/packages/banewfn.xml"
+    if command -v update-mime-database >/dev/null; then update-mime-database "$mime_root"; fi
+    if command -v update-desktop-database >/dev/null; then update-desktop-database "$output_dir"; fi
+  fi
 fi

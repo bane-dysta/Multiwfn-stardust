@@ -40,7 +40,7 @@
 #include <windows.h>
 #include <io.h>
 #include <conio.h>
-#include "../../../windows/git_bash.h"
+#include "common/git_bash.h"
 #endif
 
 namespace {
@@ -2121,7 +2121,7 @@ private:
             return false;
         }
 
-        if (plan.interactive) {
+        if (options.batch && plan.interactive) {
             std::cerr << "Error: Interactive builtins require a terminal; use a batch workflow.\n";
             return false;
         }
@@ -2358,6 +2358,14 @@ public:
         // - var*=?      -> collect var1, var2, ... and later expand ${var*} as multiple lines.
         // - len(var)=?  -> if paired with var*=?, prompt this count first and then ask exactly
         //                  that many varN values. Otherwise it behaves like a normal scalar prompt.
+        if (options.batch) {
+            for (const auto& variable : allCustomVars) {
+                if (std::find(variable.second.begin(), variable.second.end(), "?") != variable.second.end()) {
+                    std::cerr << "Error: --batch requires a value for " << variable.first << '\n';
+                    return false;
+                }
+            }
+        }
         if (!InputParser::resolveInteractiveCustomVars(allCustomVars)) {
             return false;
         }
@@ -2639,6 +2647,10 @@ void printUsage(const char* progName) {
     std::cout << "  -n, --nogui         Run Multiwfn in silent mode\n";
     std::cout << "  -w, --wfn <file>    Specify wavefunction file (.fchk/.wfn or other supported file)\n";
     std::cout << "  -v, --var <key=val> Set custom variable for placeholder replacement (can be used multiple times)\n";
+    std::cout << "  --batch            Noninteractive execution; reject terminal-dependent workflows\n";
+    std::cout << "  --inspect-json     Describe parameters and native input without executing commands\n";
+    std::cout << "  --conf-dir <path>  Module directory for --inspect-json\n";
+    std::cout << "  --parameters-json <file> Apply scoped GUI parameter values from a JSON object\n";
     std::cout << "  -V, --version       Show version information\n";
     std::cout << "  -h, --help          Show this help message\n";
     std::cout << "\nInput header reserved words:\n";
@@ -2667,7 +2679,7 @@ void printUsage(const char* progName) {
     std::cout << "  # input.inp header: dryrun=on, debug=true, nogui=on\n";
 }
 
-int BaneWfn::run(int argc, char* argv[]) {
+int BaneWfn::run(int argc, char* argv[]) try {
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]) == "--inspect-json") return Gui::inspect(argc, argv);
 #ifdef _WIN32
@@ -2806,6 +2818,9 @@ int BaneWfn::run(int argc, char* argv[]) {
             options.noColor = true;
         } else if (arg == "-s" || arg == "--screen") {
             options.screen = true;
+        } else if (arg == "--batch") {
+            options.batch = true;
+            options.nogui = true;
         } else if (arg == "-n" || arg == "--nogui") {
             options.nogui = true;
         } else if (arg == "-e" || arg == "--extargs") {
@@ -2872,6 +2887,10 @@ int BaneWfn::run(int argc, char* argv[]) {
     if (positionalArgs.size() >= 1) {
         inpFile = positionalArgs[0];
     } else {
+        if (options.batch) {
+            std::cerr << "Error: --batch requires a workflow file\n";
+            return 2;
+        }
         inpFile = UI::requestInputFile();
         if (inpFile.empty()) {
             return 1;
@@ -2884,6 +2903,18 @@ int BaneWfn::run(int argc, char* argv[]) {
         return 1;
     }
     options.debug = parsedInput.debug;
+    if (options.batch) {
+        if (parsedInput.debug) {
+            std::cerr << "Error: debug mode requires a terminal; disable it for --batch.\n";
+            return 2;
+        }
+        for (const auto& task : parsedInput.tasks) {
+            if (task.useWait) {
+                std::cerr << "Error: wait requires a terminal; use end for --batch.\n";
+                return 2;
+            }
+        }
+    }
     if (reportGrepSyntaxErrors(parsedInput.tasks)) {
         pauseBeforeExit(options);
         return 1;
@@ -2930,6 +2961,10 @@ int BaneWfn::run(int argc, char* argv[]) {
     } else if (inputWfnFile.empty()) {
         // Workflows without Multiwfn tasks do not need a wavefunction file.
         if (requiresWavefunction) {
+            if (options.batch) {
+                std::cerr << "Error: --batch requires a startup file; use --wfn or wfn=\n";
+                return 2;
+            }
             wfnFile = UI::requestWavefunctionFile();
             if (wfnFile.empty()) {
                 return 1;
@@ -2982,4 +3017,7 @@ int BaneWfn::run(int argc, char* argv[]) {
 
     pauseBeforeExit(options);
     return 0;
+} catch (const std::exception& error) {
+    std::cerr << "Error: " << error.what() << '\n';
+    return 2;
 }

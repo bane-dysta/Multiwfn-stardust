@@ -9,6 +9,29 @@ when needed; no existing molecular session is required. The original Multiwfn
 entry remains available. On Linux, `install-desktop-entry.sh` also installs a
 BaneWfn application-menu entry. The macOS tar package includes a `banewfn_gui` entry.
 
+Open a `.bw` or `.bwc` file with BaneWfn GUI, or drag the script onto its Windows
+icon, to load that script and its parameter form. Files outside the bundled
+library use their own folder for companion conf files. Directly opening a script
+shows that file in the list and carries the script and its conf files into the
+job. For workflows that need other files at relative paths, choose the complete
+script folder with the adjacent folder button. Opening a script waits for you
+to choose a startup file and click Run.
+The script button beside the library heading also opens a single workflow file.
+
+You can supply both files from a terminal:
+
+```text
+banewfn_gui analysis.bwc -w molecule.fch
+banewfn_gui --script analysis.bw --wfn molecule.fch
+```
+
+A molecular file passed alone loads the startup file. A workflow script passed
+alone loads the script. On Windows, run `Register-BaneWfn-GUI.cmd` from the package
+to add the GUI to **Open with** for `.bw` and `.bwc`; choose the default application
+through Windows. Run registration again after moving the package. Linux's desktop
+installer registers the workflow MIME type; the macOS BaneWfn app declares these
+script extensions. The CLI executable remains available separately as `banewfn`.
+
 The startup file and script list occupy the left column. Parameters, script
 preview and results occupy the right column. Results default to a folder beside
 the startup file; selecting a results folder explicitly keeps that choice when
@@ -266,7 +289,8 @@ Closing the BaneWfn workbench cancels its active job and terminates the owned
 process tree. One workflow may run per workbench at a time.
 The core count defaults to one and can be changed explicitly.
 
-The runner uses batch `end`. It rejects terminal `wait`, debug pauses and
+The workbench invokes the shared BaneWfn CLI with `--batch` and uses `end`.
+This mode rejects terminal `wait`, debug pauses and
 interactive builtins before handing control to a terminal. Unresolved `?`
 variables need values supplied in the GUI overrides; no terminal is attached.
 Platform shells and any tools used by `%command` must be available separately.
@@ -345,6 +369,11 @@ isolated batch execution, result handoff, process-tree cancellation, optional
 dependencies, retained licenses and validation results in `EDIT_STATUS.md`.
 No GitHub issue or PR has been posted by this implementation task.
 
-The pinned BaneWfn origin and local adapter changes are recorded in
-`frontend/workflows/NOTICE.md`. Redistribute its Apache license with the runner
+The BaneWfn revision and hashes are recorded in `frontend/workflows/banewfn.lock.json`.
+Maintain executor changes, conf and `scripts/gui/` recipes in the BaneWfn repository,
+then run `python3 tools/sync_banewfn.py --source ../banewfn --revision COMMIT`.
+`python3 tools/sync_banewfn.py --check` verifies the offline snapshot and runs in CI.
+The synchronization refuses to overwrite local edits to locked files. Source
+ownership and the update procedure are recorded in `frontend/workflows/NOTICE.md`.
+Redistribute its Apache license with the runner
 and preserve this repository's Multiwfn license and attribution separately.
