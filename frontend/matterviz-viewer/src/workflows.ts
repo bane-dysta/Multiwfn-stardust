@@ -22,7 +22,6 @@ export type WorkflowJob = {
   cubes?: WorkflowCube[]
 }
 export type WorkflowStatus = {
-  session?: { pid: number; revision: number } | null
   available: boolean
   runner: string | null
   library: string | null

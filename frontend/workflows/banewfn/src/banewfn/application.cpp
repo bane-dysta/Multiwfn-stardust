@@ -1,6 +1,5 @@
 #include "banewfn/application.h"
 #include "common/gui.h"
-#include "banewfn/session_execution.h"
 
 #include <iostream>
 #include <fstream>
@@ -1528,8 +1527,6 @@ private:
 
         // Generate command script with quit commands
         std::string commands = generateModuleScript(task, true);
-        if (SessionExecution::enabled() && !task.moduleName.empty())
-            commands=SessionExecution::withoutFinalQuit(commands);
         if (commands.empty()) {
             return false;
         }
@@ -1563,11 +1560,6 @@ private:
             }
         }
 
-        if (SessionExecution::enabled()) {
-            const bool ok=SessionExecution::execute(commands,outFile,wfnFile,cores);
-            cleanUpExecutionTempFile(cmdFileName,options);
-            return ok;
-        }
         std::stringstream cmd;
         cmd << buildMultiwfnInvocation(configManager.getConfig().multiwfnExec, wfnFile, cores, options)
             << " < " << quoteWorkflowArgument(cmdFileName);
@@ -2134,8 +2126,7 @@ private:
             return false;
         }
         const bool overwrite = parseBoolLike(getParamCIOr(task, {"overwrite"}, "false"), false);
-        const std::string commandText = SessionExecution::enabled()
-            ? SessionExecution::withoutFinalQuit(generateBuiltinScript(plan)) : generateBuiltinScript(plan);
+        const std::string commandText = generateBuiltinScript(plan);
         if (commandText.empty()) {
             return false;
         }
@@ -2198,10 +2189,8 @@ private:
             }
 
             std::cout << "Executing command: " << cmd.str() << std::endl;
-            std::cout << (SessionExecution::enabled() ? "Running in the current Multiwfn session..." : "Starting Multiwfn process...") << std::endl;
-            int result = SessionExecution::enabled()
-                ? (SessionExecution::execute(commandText,outFile,sourceWfn,cores) ? 0 : 1)
-                : runWorkflowInvocation(cmd.str());
+            std::cout << "Starting Multiwfn process..." << std::endl;
+            int result = runWorkflowInvocation(cmd.str());
             cleanUpExecutionTempFile(cmdFileName, options);
             success = (result == 0);
             if (success) {
@@ -2340,10 +2329,7 @@ public:
             // Workflows without Multiwfn tasks deliberately execute once
             // with an empty wavefunction context.
             wfnFiles.push_back("");
-        } else if (SessionExecution::enabled()) {
-            // The desktop supplied the already-loaded session identity. Its
-            // source need not still exist; never silently reload or glob it.
-            wfnFiles.push_back(wfnPattern);
+
         } else {
             // 展开通配符
             wfnFiles = Utils::expandWildcard(wfnPattern);
@@ -2372,14 +2358,6 @@ public:
         // - var*=?      -> collect var1, var2, ... and later expand ${var*} as multiple lines.
         // - len(var)=?  -> if paired with var*=?, prompt this count first and then ask exactly
         //                  that many varN values. Otherwise it behaves like a normal scalar prompt.
-        if (SessionExecution::enabled()) {
-            for (const auto& var : allCustomVars) for (const auto& value : var.second) {
-                if (Utils::trim(value)=="?") {
-                    std::cerr << "Error: Fill interactive variables in the GUI before running a session workflow.\n";
-                    return false;
-                }
-            }
-        }
         if (!InputParser::resolveInteractiveCustomVars(allCustomVars)) {
             return false;
         }
@@ -2538,7 +2516,6 @@ public:
                 }
 
                 for (size_t taskIdx = 0; taskIdx < fileTasks.size(); ++taskIdx) {
-                    if (SessionExecution::enabled() && !options.dryrun && !SessionExecution::checkpoint()) return false;
                     const auto& task = fileTasks[taskIdx];
                     if (task.isCollect()) {
                         if (!collector.flushToDirectory(task.collectDir, options.dryrun)) {
@@ -2559,10 +2536,6 @@ public:
                             std::cout << "\n>>> wfn_rebase: switch Multiwfn input to: " << currentWfnFile << std::endl;
                         }
 
-                        if (SessionExecution::enabled() && !options.dryrun) {
-                            if (!SessionExecution::execute("","session-rebase.out",currentWfnFile,cores,true)) return false;
-                            currentWfnFile=SessionExecution::currentFile;
-                        }
                         // Warn if file does not exist (still continue; Multiwfn will report errors).
                         if (!options.dryrun && !Utils::fileExists(currentWfnFile)) {
                             std::cerr << "Warning: wfn_rebase target file not found: " << currentWfnFile << std::endl;
@@ -2590,7 +2563,6 @@ public:
                     }
 
                     if (!taskSuccess) {
-                        if (SessionExecution::enabled()) return false;
                         allSuccess = false;
                         iterationSuccess = false;
                     } else if (!task.isCitation() && !task.isCitationOutput()) {
@@ -2610,8 +2582,6 @@ public:
                         allSuccess = false;
                         iterationSuccess = false;
                     }
-                    if (SessionExecution::enabled() && !SessionExecution::currentFile.empty())
-                        currentWfnFile=SessionExecution::currentFile;
                 }
 
                 if (iterationSuccess && !automaticCitationOutput.empty()) {

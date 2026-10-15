@@ -15,11 +15,9 @@ requirements. Include both licenses when distributing the optional runner.
 
 Local changes cover shell argument and configuration path quoting,
 Windows Bash shebang dispatch with Git for Windows discovery,
-rejecting interactive builtins, the desktop entry point and the optional portable
-session execution adapter. That adapter sends expanded command blocks to the
-desktop-owned Multiwfn, preserves per-block logs and postprocessing, strips only
-generated final termination, and implements explicit reload and cancellation
-checkpoints. Trailing whitespace
+rejecting interactive builtins and the independent desktop entry point.
+Workflows invoke Multiwfn as an external batch engine in an isolated job directory.
+The former embedded-panel session execution adapter has been removed. Trailing whitespace
 and final blank lines are normalized in vendored source/config files. The scientific engine remains an
 external Multiwfn executable. The desktop host does not parse scientific output
 or implement numerical analysis.

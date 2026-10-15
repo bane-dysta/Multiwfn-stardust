@@ -1,5 +1,55 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Independent workflow entry only — 2026-10-16
+
+Continues accepted snapshot 2c3640d6993712defb6b506c0a8794fdcffd1689;
+cumulative baseline remains ea0befc3aad728bdd61ede9b45a68725df490f5d.
+Removed the MatterViz toolbar Workflows button, embedded component import/mount,
+modal/close/refresh plumbing and session-specific UI. WorkflowPanel now mounts
+only as the independent BaneWfn main page. Its parameters, preview, results,
+language switch and selected/all Cube handoff are retained.
+
+Visualization HttpService no longer constructs a WorkflowManager or exposes its
+workflow routes. The independent WorkbenchService owns those APIs. Removed PID
+engine discovery, same-process runner bridge, state refresh/busy/cancellation
+branches and the vendored C++ SessionExecution adapter. The normal Multiwfn
+desktop still needs SessionEngine for native startup and clean close; its owner
+is now held directly by HttpService, without a workflow manager. The shared
+native GUI transport/entry adapters remain. No scientific source or algorithm
+was changed. Updated docs/package text and replaced the obsolete live workflow
+test with native GUI bootstrap/close checks.
+
+Validation: frontend check 0 errors / 0 warnings, production build passed;
+303 frontend tests passed / 1 skipped. Rust suite 149 passed; its two opt-in live
+tests then both passed using one-atom XYZ I/O (normal GUI lifecycle and standalone
+workflow). Clippy --all-targets -D warnings passed. Runner mock-engine suite:
+9 passed. Linux and Windows package tests passed, including graphical parameter
+inspection, native XYZ export and Windows Git Bash dispatch. Browser workbench,
+workflow and result-rendering checks passed, including absence of the toolbar
+button and embedded panel. A final targeted test covers the bundled-engine error.
+
+Windows native checks used the user's two existing 4-nitroaniline Cubes through
+banewfn_gui.exe -> workflow -> One-click render. Both surfaces rendered with the
+accepted blue-hole/green-electron grouping; isovalue and visibility edits worked.
+The viewer workflow status API returns 404. Separately, Multiwfn.exe loaded the
+single-atom fixture with no workflow entry/API and closed normally. Evidence and
+small replay helpers are under build/standalone-only/ and build/check_native_*.mjs.
+No quantum calculation was rerun. This task did not rerun GitHub Actions or
+interactive macOS tests; the existing CI lifecycle test now targets the supported
+native GUI boundary, and independent workbench package coverage remains enabled.
+
+Ready Windows entry:
+`C:\Users\Bane\Downloads\BaneWfn-GUI-standalone-20261016\banewfn_gui.exe`.
+Fresh ~101 MB package; old packages and user scripts preserved. This version uses
+the existing verified scientific engine, a locally cross-built Rust/MinGW desktop
+host with WebView2Loader.dll, a rebuilt static C++ runner, and the new frontend.
+Inventory tag local-standalone-20261016, 81 files verified. Linux entry:
+`/home/bane/smokes/Multiwfn-stardust/build/banewfn_gui`.
+The ~543 MB Windows Rust target cache remains in the existing build tree for
+incremental maintenance; build-win holds the runner. Temporary Cube copies,
+browser profiles and Vite cache are cleaned after testing. Ready package and
+small validation evidence remain for user acceptance.
+
 ## Paired hole/electron display and readable filenames — 2026-10-16
 
 Continues accepted snapshot ace2610700029e54e0d20d888cb55475e0cce797;

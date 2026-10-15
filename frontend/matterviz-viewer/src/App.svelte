@@ -31,8 +31,6 @@
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import UpdateModal from './UpdateModal.svelte'
-  import WorkflowPanel from './WorkflowPanel.svelte'
-  let workflowPanelOpen = $state(false)
   const ownedSession = typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('ownedSession')
   import ViewerInspector from './ViewerInspector.svelte'
   import RepInspector from './RepInspector.svelte'
@@ -1858,7 +1856,6 @@
 </script>
 
 <main class="workbench" class:has-periodic={advancedStructure && Boolean(manifest.periodic?.enabled) && activeResult === 'scene'}>
-  <WorkflowPanel open={workflowPanelOpen} onclose={() => workflowPanelOpen = false} onrefresh={() => void load_manifest()} />
   <header class="toolbar">
     <div class="brand">
       <div class="brand-mark"><Atom size={21} strokeWidth={1.6} /></div>
@@ -1873,7 +1870,6 @@
       <Icon icon="Directory" width="16" height="16" /><span>{$t("Open plot")}</span>
     </Button>
     <input class="hidden-file-input" bind:this={plotInput} type="file" accept=".txt,.dat,.csv,.json" multiple onchange={open_plot_files} />
-    <Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; workflowPanelOpen = true }}>{$t('Workflows')}</Button>
     {#if activeResult === 'scene'}
     <WorkbenchMenu name="view" label="View" bind:active={openMenu}>
     <div class="menu-heading">{$t("Camera")}</div>

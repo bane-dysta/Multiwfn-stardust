@@ -1,4 +1,4 @@
-# BaneWfn workflows in the MatterViz workbench
+# BaneWfn GUI workflows
 
 ## Independent BaneWfn application
 
@@ -113,47 +113,22 @@ large grids, with copying as a fallback. Rendering is disabled during execution
 and for preflight-only jobs. Result listing includes subfolders, excludes hidden
 files, `conf` and symlinks, and is bounded to eight directory levels / 2048 entries.
 
-## Panel in MatterViz
+## Application boundaries
 
-The **Workflows** button opens a script library for `.bw` and `.bwc` workflows.
-The left column occupies about 30% of the panel and contains the script list.
-The right column has three tabs: **Parameters**, **Script preview** and
-**Results**. Run controls stay below all three pages. Preflight and run switch to
-**Results**, which contains **Log** and **Result files** views. Tab switches keep
-parameters and the selected script. Selected paths show in their fields, with the
-full path available on hover. Narrow windows place the script list above the tabs.
-**Parameters** uses graphical controls to configure workflow inputs, CPU cores
-and variable overrides.
-The optional C++ runner reuses BaneWfn's parser, module expansion, raw input,
-variables and arrays, builtins, text extraction, postprocessing, collection and
-citations. **The desktop workflow entry starts one Multiwfn process** and keeps
-that same process for GUI operations and subsequent workflow blocks. Its PID is
-shown in the panel. Loaded data and modified scientific state remain in memory;
-ordinary blocks do not reload the startup file. Selecting a different startup
-file or using `wfn_rebase=` explicitly invokes Multiwfn's native reload menu.
-Returning to the workbench refreshes its structure and available volumes.
-Result files and logs remain in each job directory.
+Workflow selection, parameter editing, execution and cancellation belong to
+`banewfn_gui`. The MatterViz rendering window has no workflow button, embedded
+panel or workflow API. Render selected / One-click render opens a separate viewer
+with the existing scientific output; closing that viewer does not close BaneWfn.
 
-The existing engine-first GUI launch remains available with its previous batch
-backend. Use the new launcher for persistent sessions; it does not attach to an
-arbitrary terminal process. Persistent sessions support Linux/WSL, Windows and
-macOS. Open `Multiwfn` on Linux, `Multiwfn.exe` on Windows, or open
-`Multiwfn.app` on macOS. The macOS tar package supports
-`resources/tools/matterviz-desktop --launch [startup-file]`. Omit the startup
-file to choose it in a native dialog. A failed persistent launch reports an error;
-it does not silently switch to the batch backend.
+The runner reuses BaneWfn's parser, module expansion, raw input, variables,
+builtins, text extraction, postprocessing, collection and citations. Each job
+uses its own directory and invokes the bundled Multiwfn as an external process.
+It does not attach to an already running Multiwfn or retain its calculation state.
 
-Engine startup logs are under the user's temporary directory in
-`multiwfn-session-logs`. The adapter uses private pipes and Fortran scratch input
-streams, so it does not need to write into the installation or application bundle.
-Windows workflow builds embed a UTF-8 process manifest in both the engine and
-runner to keep native path handling consistent with the desktop protocol.
-The host keeps canonical Windows paths for file access and session identity, but
-writes ordinary drive/UNC paths into `banewfn.rc`. The runner's external module
-loader appends forward slashes and its legacy batch backend uses `cmd.exe`, which
-cannot consume the same verbatim (`\\?\`) paths in those positions. The live
-package test covers both backends with a real external `.conf` module, in
-addition to inline `.bwc` recipes and raw blocks.
+The normal Multiwfn desktop entry and its native visualization transport remain
+available independently. Windows engine/runner builds retain UTF-8 process
+manifests. Canonical Windows paths are normalized when written to legacy rc
+files or batch command lines, preserving Git Bash and external conf support.
 
 ## Build and install
 
@@ -163,7 +138,7 @@ For a complete Linux desktop build with the frontend and Rust host:
 
 ```sh
 bash tools/build_workflows_gui.sh
-./build/Multiwfn /absolute/path/to/startup.fchk
+./build/banewfn_gui /absolute/path/to/startup.fchk
 ```
 
 Linux builds also generate `build/Multiwfn-Workflows.desktop`. Run
@@ -177,7 +152,7 @@ starts the existing runtime wrapper and persistent host. `run-workflows-gui`
 remains available for compatibility. File managers may require marking a
 `.desktop` file as trusted before launching it outside the application menu.
 
-Omit the startup argument to open the native file chooser. The launcher's engine,
+For `banewfn_gui`, omit the startup argument to choose a file in the workbench. The launcher's engine,
 host and runner are all under `build/`; an HTML file alone is not the application.
 The helper uses existing toolchains and dependencies; normal Linux requirements
 include GTK3/WebKitGTK 4.1 development packages. This WSL development build also
@@ -211,6 +186,7 @@ The default staging layout is:
 ```text
 Multiwfn_MatterVizGUI
 Multiwfn                         # Linux GUI executable
+banewfn_gui                      # independent workflow application
 install-desktop-entry.sh         # Linux application-menu registration
 run-workflows-gui
 settings.ini
@@ -225,11 +201,10 @@ resources/
   workflows/NOTICE.md
 ```
 
-The host discovers the runner beside itself. It resolves the executable of the
-Multiwfn process that launched the desktop host from the launcher's process ID,
-and locks workflows to that exact executable. There is no engine picker or
-fallback to a different packaged build. Without the optional runner, the panel
-explains that it must be installed. If the current executable cannot be resolved,
+The host discovers the runner beside itself and uses the Multiwfn engine in the
+same installation. There is no engine picker or process-ID attachment.
+Without the optional runner, the panel explains that it must be installed.
+If the bundled engine cannot be found,
 workflow execution stays unavailable and the panel reports that error.
 
 To build the runner alone without a Fortran compiler or math libraries:
@@ -253,10 +228,10 @@ resources; they are not web request parameters.
 
 ## Run a workflow
 
-1. Open **Workflows**. Use the bundled density/Mayer examples or choose a script
+1. Open **BaneWfn GUI**. Use the bundled density/Mayer examples or choose a script
    folder. Select a script to review its source.
-2. **Startup file** initially uses the file loaded by the current Multiwfn
-   session. Choosing another input explicitly reloads the current engine.
+2. Choose a **Startup file**, or pass it to `banewfn_gui` when launching.
+   This file is used by the next workflow execution.
 3. **Results folder** defaults to `<input directory>/<input stem>_workflows`.
    It follows startup-file changes until a results folder is chosen explicitly;
    an explicit choice is preserved. The automatic directory is created only
@@ -266,19 +241,16 @@ resources; they are not web request parameters.
 4. Click **Preflight** to expand the script and generate menu-input files without
    starting Multiwfn or executing `%command`. Review the log and generated files.
 5. Click **Run workflow**. Each click creates a new `workflow-<time>-<sequence>`
-   directory. In a persistent session, **Cancel workflow** waits for the active
-   block to finish and return to the main menu, then skips remaining blocks.
-   It preserves the engine and completed output. Legacy batch cancellation
-   retains its process-tree termination behavior.
+   directory. **Cancel workflow** terminates the job process tree and preserves
+   files already written in that directory.
 
-Closing the workflow panel leaves an active job running. Returning from or
-closing the workbench requests cancellation, waits for the current block, and
-then closes the owned engine. One workflow may run per workbench at a time.
+Closing the BaneWfn workbench cancels its active job and terminates the owned
+process tree. One workflow may run per workbench at a time.
 The core count defaults to one and can be changed explicitly.
 
 The runner uses batch `end`. It rejects terminal `wait`, debug pauses and
 interactive builtins before handing control to a terminal. Unresolved `?`
-variables are rejected in session mode; supply their values in the GUI overrides.
+variables need values supplied in the GUI overrides; no terminal is attached.
 Platform shells and any tools used by `%command` must be available separately.
 
 On Windows, start a `%command` block with `#!/bin/bash` (or
@@ -345,12 +317,13 @@ The contribution is limited to frontend, host orchestration, optional build
 integration, tests and documentation. Root Fortran, `ext/` and `libreta_hybrid/`
 stay unchanged. The optional workflow build generates a copy of `Multiwfn.f90`
 with two entry/input substitutions; unique-anchor checks fail configuration if
-upstream changes those locations. The adapter schedules complete menu-input blocks
-and redirects existing output, without replacing scientific routines.
+upstream changes those locations. This native adapter remains for the normal
+Multiwfn desktop launch and clean return. BaneWfn workflows use external batch
+processes and do not use this channel.
 
-Suggested issue/PR title: **Run BaneWfn workflows in an owned Multiwfn GUI session**.
-The review description should explain the private control channel, generated
-entry, retained memory, explicit reload and block-boundary cancellation, optional
+Suggested issue/PR title: **Add an independent BaneWfn GUI with result rendering**.
+The review description should explain the independent entry, graphical parameters,
+isolated batch execution, result handoff, process-tree cancellation, optional
 dependencies, retained licenses and validation results in `EDIT_STATUS.md`.
 No GitHub issue or PR has been posted by this implementation task.
 

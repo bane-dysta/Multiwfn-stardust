@@ -365,7 +365,9 @@ jobs:
           Multiwfn to your application menu. Run the installer again after moving
           the package. ./Multiwfn [startup-file] also works from a terminal.
           macOS tar package: resources/tools/matterviz-desktop --launch [startup-file].
-          All three desktop workflow entries retain the same engine across scripts.
+          Workflows use the independent banewfn_gui entry (BaneWfn GUI.app on macOS).
+          The rendering window has no workflow panel; workflow results open there
+          through Render selected or One-click render.
 
           Requirements:
           - Windows: Microsoft Edge WebView2 Runtime
@@ -786,7 +788,7 @@ jobs:
             python3 tests/test_workflow_package.py "$PWD/macos-dist/Multiwfn.app/Contents/MacOS"
           fi
 
-      - name: Test persistent session in extracted package
+      - name: Test native GUI lifecycle without embedded workflows
         shell: bash
         timeout-minutes: 3
         env:

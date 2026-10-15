@@ -285,13 +285,12 @@ pub struct HttpService {
     frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<Mutex<bool>>,
     updater: Arc<UpdateManager>,
-    workflows: Arc<WorkflowManager>,
+    session_owner: Arc<std::sync::OnceLock<Arc<crate::session_engine::SessionEngine>>>,
     plot_export_written: Arc<AtomicBool>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 struct ControlSession {
-    refreshed: Mutex<Option<SessionData>>,
     transport: Arc<Mutex<Option<Arc<ControlTransport>>>>,
     shutdown: ShutdownSignal,
     volume_store: Arc<VolumeStore>,
@@ -315,7 +314,6 @@ impl ControlSession {
         plot_store: Option<Arc<PlotStore>>,
     ) -> Self {
         Self {
-            refreshed: Mutex::new(None),
             transport: Arc::new(Mutex::new(Some(Arc::new(transport)))),
             shutdown,
             volume_store,
@@ -387,9 +385,6 @@ impl HttpService {
             .clone()
             .ok_or("Missing GUI transport")?;
         let leave = control.clone();
-        let volumes = self.volume_store.clone();
-        let refreshed_volumes = volumes.clone();
-        let plots = self.plot_store.clone();
         owner.bind(crate::session_engine::Hooks {
             backend_lock: self.backend_lock.clone(),
             leave: Box::new(move || {
@@ -404,31 +399,8 @@ impl HttpService {
                     Err(result.to_string())
                 }
             }),
-            prepare_refresh: Box::new(move || {
-                volumes.clear();
-                volumes.set_bootstrapping(true);
-                plots.clear();
-                Ok(())
-            }),
-            refresh: Box::new(move || {
-                let transport = control
-                    .transport
-                    .lock()
-                    .map_err(|e| e.to_string())?
-                    .as_ref()
-                    .cloned()
-                    .ok_or("GUI disconnected")?;
-                let frame = transport
-                    .read_frame_timeout(session_bootstrap_wait_timeout(Duration::from_secs(300)));
-                refreshed_volumes.set_bootstrapping(false);
-                let frame = frame.map_err(|e| e.to_string())?;
-                let data = SessionData::from_frame(&frame).map_err(|e| e.to_string())?;
-                *control.refreshed.lock().map_err(|e| e.to_string())? = Some(data);
-                Ok(())
-            }),
         });
-        self.workflows
-            .session
+        self.session_owner
             .set(owner)
             .map_err(|_| "Session already attached".to_owned())
     }
@@ -596,24 +568,6 @@ impl HttpService {
                 }
             }
         }
-        let startup_manifest = if let Some(data) = &session_data {
-            serde_json::from_slice::<Value>(data.manifest_bytes()).ok()
-        } else {
-            manifest
-                .as_ref()
-                .and_then(|path| fs::read(path).ok())
-                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        };
-        let startup_file = startup_manifest
-            .as_ref()
-            .and_then(|value| value.get("startupFile"))
-            .and_then(Value::as_str)
-            .filter(|path| !path.is_empty())
-            .map(PathBuf::from);
-        let workflows = Arc::new(WorkflowManager::new(
-            config.multiwfn_pid,
-            startup_file.as_deref(),
-        ));
         let service = Self {
             session,
             shutdown,
@@ -634,7 +588,7 @@ impl HttpService {
             frontend_ready,
             return_signaled: Arc::new(Mutex::new(false)),
             updater: Arc::new(UpdateManager::new(config.multiwfn_pid)),
-            workflows,
+            session_owner: Arc::new(std::sync::OnceLock::new()),
             plot_export_written: Arc::new(AtomicBool::new(false)),
             worker: Mutex::new(None),
         };
@@ -683,7 +637,7 @@ impl HttpService {
             frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
             updater: self.updater.clone(),
-            workflows: self.workflows.clone(),
+            session_owner: self.session_owner.clone(),
             plot_export_written: self.plot_export_written.clone(),
         }
     }
@@ -703,7 +657,7 @@ impl HttpService {
         self.shutdown.is_requested()
     }
     pub fn termination_exit_code(&self) -> i32 {
-        if self.workflows.session.get().is_some() {
+        if self.session_owner.get().is_some() {
             return if *self
                 .return_signaled
                 .lock()
@@ -730,9 +684,8 @@ impl HttpService {
         }
     }
     pub fn signal_return(&self) -> Result<(), String> {
-        self.workflows.shutdown();
         #[cfg(any(unix, windows))]
-        if let Some(owner) = self.workflows.session.get() {
+        if let Some(owner) = self.session_owner.get() {
             let result = owner.close();
             if result.is_ok() {
                 *self
@@ -763,7 +716,6 @@ impl HttpService {
         self.volume_store.insert(frame)
     }
     pub fn shutdown(&self) {
-        self.workflows.shutdown();
         self.volume_store.clear();
         self.plot_store.clear();
         self.shutdown.request();
@@ -804,7 +756,7 @@ struct ServiceRunner {
     frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<Mutex<bool>>,
     updater: Arc<UpdateManager>,
-    workflows: Arc<WorkflowManager>,
+    session_owner: Arc<std::sync::OnceLock<Arc<crate::session_engine::SessionEngine>>>,
     plot_export_written: Arc<AtomicBool>,
 }
 impl ServiceRunner {
@@ -829,7 +781,6 @@ impl ServiceRunner {
                 }
             }
         }
-        self.workflows.shutdown();
     }
     fn clone_for_request(&self) -> Self {
         Self {
@@ -854,7 +805,7 @@ impl ServiceRunner {
             frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
             updater: self.updater.clone(),
-            workflows: self.workflows.clone(),
+            session_owner: self.session_owner.clone(),
             plot_export_written: self.plot_export_written.clone(),
         }
     }
@@ -941,81 +892,6 @@ impl ServiceRunner {
                 403,
                 method == "HEAD",
             );
-            return;
-        }
-        if let Some(action) = path.strip_prefix("/api/workflows/") {
-            if body.len() > 256 * 1024 {
-                respond(&mut stream, 413, "text/plain", b"Payload Too Large", false);
-                return;
-            }
-            let expected_method = if matches!(action, "status" | "preview") {
-                "GET"
-            } else {
-                "POST"
-            };
-            if method != expected_method {
-                respond(
-                    &mut stream,
-                    405,
-                    "text/plain",
-                    b"Method Not Allowed",
-                    method == "HEAD",
-                );
-                return;
-            }
-            let result = match action {
-                "inspect" => serde_json::from_slice(body)
-                    .map_err(|e| e.to_string())
-                    .and_then(|value| self.workflows.inspect(&value)),
-                "open-result" => serde_json::from_slice(body)
-                    .map_err(|e| e.to_string())
-                    .and_then(|value| self.workflows.open_result(&value, &self.frontend)),
-                "parameter-path" => pick_parameter_path(body),
-                "status" => Ok(self.workflows.status()),
-                "preview" => self.workflows.preview(
-                    query
-                        .iter()
-                        .find(|(key, _)| key == "script")
-                        .map(|(_, value)| value.as_str())
-                        .unwrap_or(""),
-                ),
-                "pick" => (|| {
-                    let value: Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
-                    let kind = value
-                        .get("kind")
-                        .and_then(Value::as_str)
-                        .ok_or("Invalid workflow selection")?;
-                    if !matches!(kind, "library" | "results" | "wavefunction") {
-                        return Err("Invalid workflow selection".into());
-                    }
-                    if let Some(path) = crate::file_dialog::select_workflow_path(kind)? {
-                        self.workflows.select(kind, &path)?;
-                    }
-                    Ok(self.workflows.status())
-                })(),
-                "run" => (|| {
-                    let value: Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
-                    self.workflows.start(&value)?;
-                    Ok(self.workflows.status())
-                })(),
-                "cancel" => {
-                    self.workflows.cancel();
-                    Ok(self.workflows.status())
-                }
-                _ => {
-                    respond(&mut stream, 404, "text/plain", b"Not Found", false);
-                    return;
-                }
-            };
-            match result {
-                Ok(value) => respond_json(&mut stream, &value, 200, false),
-                Err(message) => respond_json(
-                    &mut stream,
-                    &json!({"ok":false,"message":message}),
-                    400,
-                    false,
-                ),
-            }
             return;
         }
         if path == "/api/ready" {
@@ -1214,24 +1090,6 @@ impl ServiceRunner {
             self.shutdown.request();
             return;
         }
-        #[cfg(any(unix, windows))]
-        if matches!(
-            path.as_str(),
-            "/api/orbital" | "/api/bond" | "/api/esp" | "/api/topology" | "/api/surface"
-        ) && self
-            .workflows
-            .session
-            .get()
-            .is_some_and(|owner| owner.busy.load(Ordering::Acquire))
-        {
-            respond_json(
-                &mut stream,
-                &json!({"ok":false,"message":"A workflow owns the current session"}),
-                409,
-                false,
-            );
-            return;
-        }
         if let Some(dataset_id) = path.strip_prefix("/api/plot-data/") {
             if method != "GET" {
                 respond(&mut stream, 405, "text/plain", b"Method Not Allowed", true);
@@ -1357,6 +1215,10 @@ impl ServiceRunner {
                 200
             };
             respond_json(&mut stream, &value, status, method == "HEAD");
+            return;
+        }
+        if path.starts_with("/api/") {
+            respond(&mut stream, 404, "text/plain", b"Not Found", false);
             return;
         }
         if path == "/session/manifest.json" {
@@ -1492,8 +1354,7 @@ impl ServiceRunner {
     }
     fn signal_return(&self) -> Result<(), String> {
         #[cfg(any(unix, windows))]
-        if let Some(owner) = self.workflows.session.get() {
-            self.workflows.shutdown();
+        if let Some(owner) = self.session_owner.get() {
             return owner.close();
         }
         let result = signal_return(
@@ -1507,16 +1368,7 @@ impl ServiceRunner {
     }
 
     fn current_session_data(&self) -> Option<SessionData> {
-        self.control_session
-            .as_ref()
-            .and_then(|control| {
-                control
-                    .refreshed
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone()
-            })
-            .or_else(|| self.session_data.clone())
+        self.session_data.clone()
     }
 
     fn stream_orbital(&self, stream: &mut TcpStream, query: &[(String, String)]) {
@@ -2387,7 +2239,6 @@ mod tests {
         decode_ack, decode_volume, encode_volume, Crc32c, ACK_HEADER_BYTES, PRELUDE_BYTES,
         VOLUME_HEADER_BYTES,
     };
-    use serde_json::json;
     use std::fs;
     use std::io::{ErrorKind, Read, Write};
     use std::net::{TcpListener, TcpStream};
@@ -3321,104 +3172,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(unix, windows))]
-    fn in_memory_session_initializes_workflow_input_and_results() {
-        let root = fixture("workflow-startup-memory");
-        fs::create_dir_all(&root).unwrap();
-        let startup = root.join("loaded molecule.fchk");
-        fs::write(&startup, "mock input").unwrap();
-        let (service, producer, session) =
-            start_memory_session_with_input(&root, "workflow", Some(startup.clone()));
-        let status = service.workflows.status();
-        assert_eq!(
-            status["wavefunction"],
-            json!(startup.canonicalize().unwrap())
-        );
-        assert_eq!(
-            status["results"],
-            json!(root
-                .canonicalize()
-                .unwrap()
-                .join("loaded molecule_workflows"))
-        );
-        assert_eq!(
-            status["multiwfn"],
-            json!(std::env::current_exe().unwrap().canonicalize().unwrap())
-        );
-        let url = Url::parse(service.url()).unwrap();
-        let mut stream = connect_client(&url);
-        let body = r#"{"kind":"multiwfn"}"#;
-        write!(
-            stream,
-            "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            authorized_path(service.url(), "/api/workflows/pick"),
-            authority(&url),
-            body.len(),
-            body
-        )
-        .unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
-        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
-        assert!(response.contains("Invalid workflow selection"));
-        assert_eq!(service.workflows.status()["multiwfn"], status["multiwfn"]);
-        assert!(!session.exists());
-        assert!(!root.join("loaded molecule_workflows").exists());
-        service.signal_return().unwrap();
-        producer.join().unwrap();
-        service.shutdown();
-        join_service(service);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn file_session_initializes_workflow_input_and_results() {
-        let root = fixture("workflow-startup-file");
-        let frontend = root.join("frontend");
-        let session = root.join("session");
-        fs::create_dir_all(&frontend).unwrap();
-        fs::create_dir_all(&session).unwrap();
-        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
-        let startup = root.join("loaded molecule.xyz");
-        fs::write(&startup, "mock input").unwrap();
-        fs::write(
-            session.join("manifest.json"),
-            json!({"startupFile": startup}).to_string(),
-        )
-        .unwrap();
-        let service = HttpService::start(AppConfig {
-            frontend,
-            session,
-            manifest: None,
-            state: None,
-            host: "127.0.0.1".into(),
-            port: 0,
-            transport: None,
-            multiwfn_pid: Some(u64::from(std::process::id())),
-        })
-        .unwrap();
-        let status = service.workflows.status();
-        assert_eq!(
-            status["wavefunction"],
-            json!(startup.canonicalize().unwrap())
-        );
-        assert_eq!(
-            status["results"],
-            json!(root
-                .canonicalize()
-                .unwrap()
-                .join("loaded molecule_workflows"))
-        );
-        assert_eq!(
-            status["multiwfn"],
-            json!(std::env::current_exe().unwrap().canonicalize().unwrap())
-        );
-        service.shutdown();
-        join_service(service);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn path_decoder_handles_percent_and_rejects_bad_hex() {
         assert_eq!(decode_path("/a%20b").unwrap(), "/a b");
         assert!(decode_path("/%xx").is_err());
@@ -3667,24 +3420,31 @@ mod tests {
         let fragmented = fragmented_request(service.url(), "/session/manifest.json");
         assert!(fragmented.starts_with("HTTP/1.1 200 OK"));
 
-        let workflow_status = authorized_path(service.url(), "/api/workflows/status");
-        assert!(request(service.url(), "GET", "/api/workflows/status")
-            .starts_with("HTTP/1.1 403 Forbidden"));
-        assert!(request(service.url(), "GET", &workflow_status).contains("multiwfn-workflows"));
-        assert!(request(service.url(), "POST", &workflow_status)
-            .starts_with("HTTP/1.1 405 Method Not Allowed"));
-        assert!(request(
-            service.url(),
-            "GET",
-            &authorized_path(service.url(), "/api/workflows/cancel")
-        )
-        .starts_with("HTTP/1.1 405 Method Not Allowed"));
-        assert!(request(
-            service.url(),
-            "POST",
-            &authorized_path(service.url(), "/api/workflows/run")
-        )
-        .starts_with("HTTP/1.1 400 Bad Request"));
+        for action in [
+            "status",
+            "preview",
+            "inspect",
+            "pick",
+            "run",
+            "cancel",
+            "open-result",
+            "open-results",
+            "parameter-path",
+        ] {
+            for method in ["GET", "POST"] {
+                let path = authorized_path(service.url(), &format!("/api/workflows/{action}"));
+                let expected = if method == "GET" {
+                    "HTTP/1.1 404"
+                } else {
+                    "HTTP/1.1 405"
+                };
+                let response = request(service.url(), method, &path);
+                assert!(
+                    response.starts_with(expected),
+                    "{method} {action}: {response}"
+                );
+            }
+        }
 
         let missing_capability = request(service.url(), "GET", "/api/return");
         assert!(missing_capability.starts_with("HTTP/1.1 403 Forbidden"));
@@ -4114,7 +3874,7 @@ mod tests {
         );
         assert!(response.starts_with("HTTP/1.1 200"));
         assert!(response.contains("\"wavefunction\":null"));
-        assert!(response.contains("\"session\":null"));
+        assert!(!response.contains("\"session\":"));
         assert!(!root.join("session").exists());
         service.shutdown();
         fs::remove_dir_all(root).unwrap();

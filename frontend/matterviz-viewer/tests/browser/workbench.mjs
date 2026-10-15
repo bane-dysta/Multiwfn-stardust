@@ -35,7 +35,7 @@ await page.route('**/api/workflows/**', async route => {
 })
 try {
   await page.goto(`${process.env.PREVIEW_URL || 'http://127.0.0.1:5205/'}?workbench=1&cap=test-capability`)
-  const panel = page.getByRole('dialog', {name: 'BaneWfn', exact: true})
+  const panel = page.getByRole('main', {name: 'BaneWfn', exact: true})
   await panel.getByLabel('网格精度', {exact:true}).waitFor()
   assert.equal(await panel.getByRole('tab').count(), 3)
   assert.equal(await page.locator('canvas').count(), 0)

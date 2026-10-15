@@ -1,4 +1,4 @@
-//! BaneWfn workflows with an optional persistent native-session backend.
+//! Independent BaneWfn workbench: run workflows in isolated engine processes.
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
@@ -32,8 +32,6 @@ struct State {
 }
 
 pub struct WorkflowManager {
-    #[cfg(any(unix, windows))]
-    pub session: std::sync::OnceLock<Arc<crate::session_engine::SessionEngine>>,
     runner: Option<PathBuf>,
     conf: PathBuf,
     multiwfn: Option<PathBuf>,
@@ -42,19 +40,7 @@ pub struct WorkflowManager {
     stopped: AtomicBool,
 }
 
-impl Default for WorkflowManager {
-    fn default() -> Self {
-        Self::new(None, None)
-    }
-}
-
 impl WorkflowManager {
-    pub fn standalone(engine: PathBuf, startup: Option<&Path>) -> Self {
-        let mut manager = Self::new(None, startup);
-        manager.multiwfn = engine.canonicalize().ok().filter(|p| p.is_file());
-        manager
-    }
-
     pub fn inspect(&self, request: &Value) -> Result<Value, String> {
         let state = self.state.lock().map_err(|e| e.to_string())?;
         let id = request["script"]
@@ -132,7 +118,7 @@ impl WorkflowManager {
         }
         Ok(value)
     }
-    pub fn new(multiwfn_pid: Option<u64>, startup_file: Option<&Path>) -> Self {
+    pub fn standalone(engine: PathBuf, startup_file: Option<&Path>) -> Self {
         let executable = std::env::current_exe().unwrap_or_default();
         let tools = executable.parent().unwrap_or(Path::new("."));
         let resources = tools.parent().unwrap_or(tools);
@@ -150,7 +136,12 @@ impl WorkflowManager {
             .or_else(|| resource_dir.join("scripts").canonicalize().ok());
         let conf =
             configured_path("MULTIWFN_WORKFLOW_CONF").unwrap_or_else(|| resource_dir.join("conf"));
-        let manager = Self::with_paths(runner, conf, library, running_multiwfn(multiwfn_pid));
+        let manager = Self::with_paths(
+            runner,
+            conf,
+            library,
+            engine.canonicalize().ok().filter(|p| p.is_file()),
+        );
         if let Some(path) = startup_file {
             let _ = manager.select("wavefunction", path);
         }
@@ -164,8 +155,6 @@ impl WorkflowManager {
         multiwfn: Option<PathBuf>,
     ) -> Self {
         Self {
-            #[cfg(any(unix, windows))]
-            session: std::sync::OnceLock::new(),
             runner,
             conf,
             multiwfn,
@@ -187,12 +176,6 @@ impl WorkflowManager {
         let mut state = self.state.lock().map_err(|e| e.to_string())?;
         if state.job.as_ref().is_some_and(active) {
             return Err("A workflow is still running".into());
-        }
-        #[cfg(any(unix, windows))]
-        if kind == "wavefunction" {
-            if let Some(owner) = self.session.get() {
-                owner.load_file(&path)?;
-            }
         }
         match kind {
             "library" if path.is_dir() => state.library = Some(path),
@@ -250,14 +233,7 @@ impl WorkflowManager {
             json!({"directory":job.directory, "state":job.state, "exitCode":job.code,
                 "message":job.message, "log":log, "files":files, "cubes":cubes})
         });
-        #[cfg(any(unix, windows))]
-        let session_info = self
-            .session
-            .get()
-            .map(|s| json!({"pid":s.pid,"revision":s.revision.load(Ordering::Acquire)}));
-        #[cfg(not(any(unix, windows)))]
-        let session_info: Option<Value> = None;
-        json!({"format":"multiwfn-workflows", "version":1, "available":self.runner.is_some(), "session":session_info,
+        json!({"format":"multiwfn-workflows", "version":1, "available":self.runner.is_some(),
             "runner":self.runner, "library":state.library, "results":state.results,
             "wavefunction":state.wavefunction, "multiwfn":self.multiwfn,
             "scripts":scripts, "catalogError":catalog_error, "job":job})
@@ -342,7 +318,7 @@ impl WorkflowManager {
         let multiwfn = self
             .multiwfn
             .as_ref()
-            .ok_or("The running Multiwfn executable could not be located.")?;
+            .ok_or("The bundled Multiwfn executable could not be located.")?;
         fs::create_dir_all(results).map_err(|e| e.to_string())?;
         let results = results.canonicalize().map_err(|e| e.to_string())?;
         validate_path(&results)?;
@@ -371,12 +347,6 @@ impl WorkflowManager {
         let directory = results.join(format!("workflow-{stamp}-{sequence}"));
         fs::create_dir(&directory).map_err(|e| e.to_string())?;
         let cancel = Arc::new(AtomicBool::new(false));
-        #[cfg(any(unix, windows))]
-        let mut session_bridge = None;
-        #[cfg(any(unix, windows))]
-        let session_pid = self.session.get().map(|owner| owner.pid);
-        #[cfg(not(any(unix, windows)))]
-        let session_pid: Option<u32> = None;
         let prepared = (|| -> Result<(Child, ProcessTree), String> {
             let mut budget = CopyBudget::default();
             copy_inputs(source_dir, &directory, &results, 0, &mut budget)?;
@@ -414,13 +384,7 @@ impl WorkflowManager {
                 .arg("--cores")
                 .arg(cores.to_string());
             if let Some(wfn) = &state.wavefunction {
-                // Preserve the loaded session's identity, even if its input has
-                // since moved or disappeared. Only legacy rc paths are adapted.
-                if self.session.get().is_some() {
-                    command.arg("--wfn").arg(wfn);
-                } else {
-                    command.arg("--wfn").arg(runner_path(wfn));
-                }
+                command.arg("--wfn").arg(runner_path(wfn));
             }
             for variable in &variables {
                 command.arg("--var").arg(variable);
@@ -442,36 +406,11 @@ impl WorkflowManager {
             {
                 command.env_remove(key);
             }
-            #[cfg(any(unix, windows))]
-            let session_client = if let Some(owner) = self.session.get() {
-                command.env("BANEWFN_SESSION_MODE", "1");
-                if !dry_run {
-                    let (client, bridge) =
-                        owner.runner(&mut command, directory.clone(), cancel.clone())?;
-                    session_bridge = Some(bridge);
-                    Some(client)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
             fs::write(directory.join("workflow-run.json"), serde_json::to_vec_pretty(&json!({
                 "script":script,"runner":runner,"multiwfn":multiwfn,"wavefunction":state.wavefunction,
-                "cores":cores,"variables":variables,"dryRun":dry_run,
-                "sessionPid":session_pid
+                "cores":cores,"variables":variables,"dryRun":dry_run
             })).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-            let mut child = ProcessTree::spawn(command);
-            if let (Ok((process, _)), Some(client)) = (&mut child, &session_client) {
-                if let Err(error) = client.complete(process) {
-                    let _ = process.kill();
-                    let _ = process.wait();
-                    return Err(error.to_string());
-                }
-            }
-            #[cfg(any(unix, windows))]
-            drop(session_client);
-            child
+            ProcessTree::spawn(command)
         })();
         let (mut child, tree) = match prepared {
             Ok(value) => value,
@@ -494,15 +433,9 @@ impl WorkflowManager {
             cancel: cancel.clone(),
         });
         let shared = self.state.clone();
-        #[cfg(any(unix, windows))]
-        let session_owner = self.session.get().cloned();
-        #[cfg(any(unix, windows))]
-        let persistent = session_owner.is_some();
-        #[cfg(not(any(unix, windows)))]
-        let persistent = false;
         *worker = Some(thread::spawn(move || {
-            let mut outcome = loop {
-                if cancel.load(Ordering::Acquire) && !persistent {
+            let outcome = loop {
+                if cancel.load(Ordering::Acquire) {
                     tree.terminate();
                     let _ = child.kill();
                     let _ = child.wait();
@@ -533,28 +466,9 @@ impl WorkflowManager {
                     }
                 }
             };
-            #[cfg(any(unix, windows))]
-            if let Some(bridge) = session_bridge {
-                match bridge.join() {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => outcome = ("failed", outcome.1, error),
-                    Err(_) => outcome = ("failed", outcome.1, "Session worker failed".into()),
-                }
-            }
-            if persistent && cancel.load(Ordering::Acquire) {
-                outcome.0 = "cancelled";
-            }
             // No helper or Multiwfn descendant may outlive the workflow owner.
             tree.terminate();
             let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
-            #[cfg(any(unix, windows))]
-            if let Some(owner) = session_owner {
-                let file = owner.file();
-                if !state.results_selected {
-                    state.results = default_results(&file).ok();
-                }
-                state.wavefunction = Some(file);
-            }
             if let Some(job) = &mut state.job {
                 job.state = outcome.0;
                 job.code = outcome.1;
@@ -652,69 +566,6 @@ fn default_results(startup_file: &Path) -> Result<PathBuf, String> {
     Ok(parent.join(name))
 }
 
-// The native launcher supplies the current Multiwfn PID. Resolve its actual
-// image once, so neither a different packaged build nor a picker can replace it.
-fn running_multiwfn(pid: Option<u64>) -> Option<PathBuf> {
-    let pid = u32::try_from(pid?).ok().filter(|pid| *pid != 0)?;
-    let path = existing_file(process_image(pid)?)?;
-    validate_path(&path).ok()?;
-    Some(path)
-}
-
-#[cfg(target_os = "linux")]
-fn process_image(pid: u32) -> Option<PathBuf> {
-    fs::read_link(format!("/proc/{pid}/exe")).ok()
-}
-
-#[cfg(windows)]
-fn process_image(pid: u32) -> Option<PathBuf> {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-        PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if handle.is_null() {
-        return None;
-    }
-    let mut buffer = vec![0_u16; 32768];
-    let mut size = buffer.len() as u32;
-    let success = unsafe {
-        QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut size)
-    };
-    unsafe { CloseHandle(handle) };
-    (success != 0).then(|| PathBuf::from(OsString::from_wide(&buffer[..size as usize])))
-}
-
-#[cfg(target_os = "macos")]
-fn process_image(pid: u32) -> Option<PathBuf> {
-    use std::ffi::CStr;
-    use std::os::unix::ffi::OsStrExt;
-    #[link(name = "proc")]
-    unsafe extern "C" {
-        fn proc_pidpath(pid: libc::c_int, buffer: *mut libc::c_void, size: u32) -> libc::c_int;
-    }
-    let mut buffer = [0_u8; 4096];
-    let size = unsafe {
-        proc_pidpath(
-            i32::try_from(pid).ok()?,
-            buffer.as_mut_ptr().cast(),
-            buffer.len() as u32,
-        )
-    };
-    if size <= 0 {
-        return None;
-    }
-    let path = CStr::from_bytes_until_nul(&buffer).ok()?;
-    Some(PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes())))
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn process_image(_pid: u32) -> Option<PathBuf> {
-    None
-}
 fn configured_path(key: &str) -> Option<PathBuf> {
     std::env::var_os(key).and_then(|p| PathBuf::from(p).canonicalize().ok())
 }
@@ -1071,13 +922,7 @@ mod tests {
     }
 
     #[test]
-    fn engine_is_resolved_from_pid_and_cannot_be_replaced() {
-        assert_eq!(
-            running_multiwfn(Some(u64::from(std::process::id()))),
-            Some(std::env::current_exe().unwrap().canonicalize().unwrap())
-        );
-        assert!(running_multiwfn(None).is_none());
-        assert!(running_multiwfn(Some(u64::MAX)).is_none());
+    fn packaged_engine_cannot_be_replaced() {
         let f = Fixture::new("exit 0");
         let locked = f.manager.status()["multiwfn"].clone();
         let other = f.root.join("different Multiwfn");
@@ -1095,14 +940,14 @@ mod tests {
     }
 
     #[test]
-    fn missing_current_engine_fails_without_creating_a_job() {
+    fn missing_bundled_engine_fails_without_creating_a_job() {
         let mut f = Fixture::new("exit 0");
         f.manager.multiwfn = None;
         assert!(f
             .manager
             .start(&f.request())
             .unwrap_err()
-            .contains("running Multiwfn"));
+            .contains("bundled Multiwfn"));
         assert_eq!(fs::read_dir(f.root.join("results")).unwrap().count(), 0);
     }
 

@@ -52,6 +52,8 @@ try {
   })
   await page.waitForFunction(() => window.surfaceGeometry('volume-1').length && window.surfaceGeometry('volume-2').length, {}, { timeout: 15000 })
   assert.equal(await page.locator('.rep-pair-heading').innerText(), 'regression')
+  assert.equal(await page.getByRole('button', { name: 'Workflows', exact: true }).count(), 0)
+  assert.equal(await page.locator('.workflow-panel').count(), 0)
   assert.ok(await page.locator('.rep-select').nth(1).innerText().then(text => text.includes('Hole density')))
   assert.ok(await page.locator('.rep-select').nth(2).innerText().then(text => text.includes('Electron distribution')))
   const colors = await page.evaluate(() => ['volume-1', 'volume-2'].map(id => {

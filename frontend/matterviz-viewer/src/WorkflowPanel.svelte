@@ -1,14 +1,10 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
-  import { Workflow, FolderOpen, FileCode2, FileText, Play, Square, Check, X, Terminal, Cpu, SlidersHorizontal } from '@lucide/svelte'
+  import { onDestroy, onMount } from 'svelte'
+  import { Workflow, FolderOpen, FileCode2, FileText, Play, Square, Check, Terminal, Cpu, SlidersHorizontal } from '@lucide/svelte'
   import * as Tabs from '$lib/components/ui/tabs'
   import { t, locale, set_locale } from './i18n'
   import { create_workflow_client, workflow_active, workflow_variables, workflow_cube_label, display_path, type WorkflowCube, type WorkflowStatus, type WorkflowSelection, type WorkflowInspection, type WorkflowField } from './workflows'
 
-  export let open = false
-  export let standalone = false
-  export let onclose: (() => void) | undefined = undefined
-  export let onrefresh: (() => void) | undefined = undefined
   const client = create_workflow_client()
   let status: WorkflowStatus | undefined
   let selected = ''
@@ -45,11 +41,9 @@
   let cores = 1
   let error = ''
   let busy = false
-  let wasOpen = false
   let destroyed = false
   let previewGeneration = 0
   let timer: ReturnType<typeof setTimeout> | undefined
-  let dialog: HTMLDialogElement | undefined
   let outputView: 'log' | 'files' = 'log'
   let activeTab = 'settings'
   let resultUnits: Record<string, string> = {}
@@ -99,7 +93,6 @@
   }
   const apply = (next: WorkflowStatus): void => {
     if (destroyed) return
-    if (status?.session && next.session && status.session.revision !== next.session.revision) onrefresh?.()
     if (status?.job?.directory !== next.job?.directory) { resultUnits = {}; selectedResults = [] }
     else selectedResults = selectedResults.filter(file => next.job?.cubes?.some(cube => cube.file === file))
     status = next
@@ -143,25 +136,18 @@
   $: previewText = nativePreview ? (inspection?.tasks ?? []).map(task => `# ${task.task + 1} · ${task.module || 'raw'}\n${task.commands}`).join('\n') : source
   $: sourceLines = previewText ? previewText.split('\n').map((_, index) => index + 1).join('\n') : ''
   $: groups = [...new Set((inspection?.fields ?? []).map(field => field.group))]
-  $: if (open && dialog && !dialog.open) { if (standalone) dialog.show(); else dialog.showModal() }
-  $: {
-    if (open && !wasOpen) { error = ''; void refresh() }
-    wasOpen = open
-  }
+  onMount(() => { void refresh() })
   onDestroy(() => { destroyed = true; previewGeneration++; inspectGeneration++; if (timer) clearTimeout(timer); if (inspectTimer) clearTimeout(inspectTimer) })
 </script>
 
-{#if open}
-  <dialog bind:this={dialog} class="workflow-panel" class:standalone aria-labelledby="workflow-heading" oncancel={(event) => { event.preventDefault(); onclose?.() }}>
+  <main class="workflow-panel" aria-labelledby="workflow-heading">
     <header class="workflow-header">
-      <div class="workflow-title"><span class="workflow-mark"><Workflow size={20} /></span><h2 id="workflow-heading">{standalone ? 'BaneWfn' : $t('Workflows')}</h2></div>
-      {#if standalone}<button type="button" onclick={() => set_locale($locale === 'zh' ? 'en' : 'zh')}>{$locale === 'zh' ? 'English' : '中文'}</button>{/if}
-      {#if !standalone}<button class="workflow-close" type="button" aria-label={$t('Close workflows')} onclick={onclose}><X size={20} /></button>{/if}
+      <div class="workflow-title"><span class="workflow-mark"><Workflow size={20} /></span><h2 id="workflow-heading">BaneWfn</h2></div>
+      <button type="button" onclick={() => set_locale($locale === 'zh' ? 'en' : 'zh')}>{$locale === 'zh' ? 'English' : '中文'}</button>
     </header>
-    {#if status?.session}<p class="workflow-session">{$t('Current session')} · PID {status.session.pid}</p>{/if}
     {#if error}<p class="workflow-error workflow-banner" role="alert">{$t(error)}</p>{/if}
     {#if status?.available === false}<p class="workflow-error workflow-banner" role="alert">{$t('Install the optional workflow runner to use this panel.')}</p>{/if}
-    {#if status?.available && !status.multiwfn}<p class="workflow-error workflow-banner" role="alert">{$t('The running Multiwfn executable could not be located.')}</p>{/if}
+    {#if status?.available && !status.multiwfn}<p class="workflow-error workflow-banner" role="alert">{$t('The bundled Multiwfn executable could not be located.')}</p>{/if}
     <div class="workflow-layout">
       <section class="workflow-library" aria-labelledby="workflow-library-heading">
         <div class="workflow-field">
@@ -289,7 +275,7 @@
           </Tabs.Content>
         </Tabs.Root>
         <div class="workflow-footer">
-          <div class="workflow-status">{#if status?.job}<span class="workflow-state" class:running class:failed={status.job.state === 'failed'} role="status"><span></span>{$t(status.session && status.job.state === 'cancelling' ? 'Stopping after current block' : status.job.state)}</span>{/if}</div>
+          <div class="workflow-status">{#if status?.job}<span class="workflow-state" class:running class:failed={status.job.state === 'failed'} role="status"><span></span>{$t(status.job.state)}</span>{/if}</div>
           <div class="workflow-actions">
             <button type="button" disabled={!canRun} onclick={() => run(true)}><Check size={16} />{$t('Preflight')}</button>
             {#if running}
@@ -301,11 +287,9 @@
         </div>
       </section>
     </div>
-  </dialog>
-{/if}
+  </main>
 
 <style>
-  .workflow-panel.standalone { width: 100%; height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
   .parameter-group { padding: 18px 0; margin: 12px 0; border: 0; border-top: 1px solid var(--ui-border); }
   .parameter-group legend { padding-right: 12px; font-weight: 600; }
   .parameter-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr); gap: 18px; align-items: center; margin-bottom: 14px; }
@@ -317,10 +301,7 @@
   details { margin-top: 18px; color: var(--ui-muted-foreground); }
   summary { cursor: pointer; }
   details textarea { margin-top: 12px; }
-  .workflow-session { margin: 0; padding: 0 22px 8px; font-size: 13px; color: var(--muted-foreground); }
-  .workflow-panel::backdrop { background: #18293866; backdrop-filter: blur(3px); }
-  .workflow-panel { position: fixed; inset: 0; margin: auto; padding: 0; width: min(1120px, calc(100% - 48px)); height: min(760px, calc(100dvh - 48px)); max-width: none; max-height: none; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 16px; background: var(--ui-background); color: var(--ui-foreground); box-shadow: 0 24px 80px #13253440; font-size: 13px; }
-  .workflow-panel[open] { display: flex; flex-direction: column; }
+  .workflow-panel { display: flex; flex-direction: column; position: fixed; inset: 0; margin: 0; padding: 0; width: 100%; height: 100dvh; overflow: hidden; background: var(--ui-background); color: var(--ui-foreground); font-size: 13px; }
   .workflow-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 18px 24px; border-bottom: 1px solid var(--ui-border); }
   .workflow-title { display: flex; align-items: center; gap: 12px; }
   .workflow-mark { display: grid; place-items: center; width: 36px; height: 36px; background: var(--ui-accent); color: var(--ui-primary); border-radius: 10px; }
@@ -331,7 +312,6 @@
   button:disabled { opacity: .5; cursor: default; }
   button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--ui-ring); outline-offset: 2px; }
   button :global(svg) { flex-shrink: 0; }
-  .workflow-close { width: 36px; padding: 0; border-color: transparent; color: var(--ui-muted-foreground); }
   .workflow-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 7fr); flex: 1; min-height: 0; }
   .workflow-library, .workflow-execution { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .workflow-library { padding: 22px 18px; background: #f7f9fb; border-right: 1px solid var(--ui-border); }
@@ -405,7 +385,6 @@
   .workflow-banner { flex-shrink: 0; margin: 0; padding: 12px 24px; background: #fff2f0; border-bottom: 1px solid #f0d3cf; }
   .workflow-job-message { flex-shrink: 0; margin: 0; padding: 10px 24px 0; }
   @media (max-width: 760px) {
-    .workflow-panel { width: calc(100% - 24px); height: calc(100dvh - 24px); border-radius: 12px; }
     .workflow-header { padding: 14px 18px; }
     .workflow-layout { grid-template-columns: 1fr; grid-template-rows: 190px minmax(0, 1fr); }
     .workflow-library { padding: 12px 18px; border-right: 0; border-bottom: 1px solid var(--ui-border); }
