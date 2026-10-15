@@ -8,6 +8,9 @@
 #include <windows.h>
 #include <wchar.h>
 #include <stdlib.h>
+#ifndef BANEWFN_ENTRY
+#define BANEWFN_ENTRY 0
+#endif
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE previous,LPWSTR args,int show) {
     (void)instance;(void)previous;(void)show;
     wchar_t executable[32768],host[32768];
@@ -17,7 +20,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE previous,LPWSTR args,int show) 
     if(swprintf(host,32768,L"%ls\\resources\\tools\\matterviz-desktop.exe",executable)<0) return 2;
     size_t size=wcslen(host)+wcslen(args)+32;
     wchar_t *command=calloc(size,sizeof(wchar_t));if(!command) return 2;
-    swprintf(command,size,L"\"%ls\" --launch %ls",host,args);
+    swprintf(command,size,L"\"%ls\" %ls %ls",host,BANEWFN_ENTRY ? L"--workbench" : L"--launch",args);
     STARTUPINFOW startup={0};startup.cb=sizeof(startup);
     PROCESS_INFORMATION process={0};
     BOOL ok=CreateProcessW(host,command,NULL,NULL,FALSE,CREATE_NO_WINDOW,NULL,NULL,&startup,&process);

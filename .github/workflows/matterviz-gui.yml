@@ -113,6 +113,7 @@ jobs:
           cmake -S frontend/workflows -B build/workflow-runner -DCMAKE_BUILD_TYPE=Release
           cmake --build build/workflow-runner --parallel 4
           python3 -m unittest discover -s tests -p test_workflow_runner.py -v
+          python3 tests/test_workbench_cli.py build/workflow-runner/multiwfn-workflow
 
       - name: Test MatterViz Rust host
         working-directory: frontend/matterviz-desktop
@@ -341,12 +342,16 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
           cp "build-matterviz-package/resources/tools/multiwfn-workflow$suffix" "package/$pkg/resources/tools/"
           if [ "$RUNNER_OS" = Linux ]; then
-            cp build-matterviz-package/Multiwfn build-matterviz-package/run-workflows-gui \
+            cp build-matterviz-package/Multiwfn build-matterviz-package/banewfn build-matterviz-package/run-workflows-gui \
               build-matterviz-package/install-desktop-entry.sh "package/$pkg/"
             cp build-matterviz-package/resources/multiwfn.png "package/$pkg/resources/"
             cp build-matterviz-package/resources/tools/matterviz-file-dialog "package/$pkg/resources/tools/"
           fi
           cp docs/workflows.md "package/$pkg/README-Workflows.md"
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp tools/macos/banewfn_launcher.sh "package/$pkg/banewfn"
+            chmod +x "package/$pkg/banewfn"
+          fi
           cat > "package/$pkg/README-MatterViz.txt" <<'EOF'
           MatterViz WebView package
 
@@ -652,6 +657,7 @@ jobs:
           set -euo pipefail
           cp build-matterviz-package/Multiwfn_MatterVizGUI.exe "package/$PKG/Multiwfn_MatterVizGUI.exe"
           cp build-matterviz-package/Multiwfn.exe "package/$PKG/Multiwfn.exe"
+          cp build-matterviz-package/banewfn.exe "package/$PKG/banewfn.exe"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop.exe \
             "package/$PKG/resources/tools/matterviz-desktop.exe"
           if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then

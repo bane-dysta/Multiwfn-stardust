@@ -1,5 +1,13 @@
 /** Application-owned UI text. Keep scientific data, identifiers and user labels unchanged. */
 export const zh = {
+  'Choose file': '选择文件',
+  'Reset parameter': '恢复脚本参数',
+  'This script has no configurable parameters.': '此脚本没有可配置参数。',
+  'Script notes': '脚本说明',
+  'Additional variables': '附加变量',
+  'Preview content': '预览内容',
+  'Original script': '原始脚本',
+  'Multiwfn input': 'Multiwfn 输入',
   'Workflows': '工作流',
   'Current session': '当前会话',
   'Load startup file': '载入启动文件',

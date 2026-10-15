@@ -222,6 +222,20 @@ fi
 
 echo "==> Successfully created Multiwfn.app at: $APP_BUNDLE"
 
+# A self-contained workflow application can be moved independently of Multiwfn.app.
+if [[ -n "$WORKFLOW_RUNNER" ]]; then
+  WORKBENCH_BUNDLE="$OUTPUT_DIR/BaneWfn.app"
+  rm -rf "$WORKBENCH_BUNDLE"
+  cp -R "$APP_BUNDLE" "$WORKBENCH_BUNDLE"
+  touch "$WORKBENCH_BUNDLE/Contents/Resources/banewfn-workbench"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleName BaneWfn' "$WORKBENCH_BUNDLE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName BaneWfn' "$WORKBENCH_BUNDLE/Contents/Info.plist" || \
+    /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string BaneWfn' "$WORKBENCH_BUNDLE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier org.banewfn.workbench' "$WORKBENCH_BUNDLE/Contents/Info.plist"
+  codesign --force --deep -s - "$WORKBENCH_BUNDLE"
+  codesign -vvv --deep "$WORKBENCH_BUNDLE"
+fi
+
 # 7. Optionally create DMG
 if [[ "$CREATE_DMG" -eq 1 ]]; then
   if [[ -z "$DMG_NAME" ]]; then
@@ -237,6 +251,7 @@ if [[ "$CREATE_DMG" -eq 1 ]]; then
   trap cleanup_dmg EXIT
 
   cp -R "$APP_BUNDLE" "$DMG_STAGING/Multiwfn.app"
+  if [[ -n "$WORKFLOW_RUNNER" ]]; then cp -R "$WORKBENCH_BUNDLE" "$DMG_STAGING/BaneWfn.app"; fi
   cp "$ROOT_DIR/LICENSE.txt" "$ROOT_DIR/ATTRIBUTION.txt" "$DMG_STAGING/"
   ln -s /Applications "$DMG_STAGING/Applications"
   cp "$SCRIPT_DIR/Install_Multiwfn.command" "$DMG_STAGING/Install_Multiwfn.command"

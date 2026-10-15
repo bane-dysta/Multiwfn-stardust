@@ -1,4 +1,5 @@
 #include "common/config.h"
+#include "common/gui.h"
 #include "common/utils.h"
 #include <iostream>
 #include <fstream>
@@ -305,7 +306,7 @@ std::string getExecutableDir() {
         char fname[_MAX_FNAME];
         char ext[_MAX_EXT];
         _splitpath_s(result, drive, _MAX_DRIVE, dir, _MAX_DIR, fname, _MAX_FNAME, ext, _MAX_EXT);
-
+        
         std::string fullPath = std::string(drive) + std::string(dir);
         // Remove trailing backslash
         if (!fullPath.empty() && (fullPath.back() == '\\' || fullPath.back() == '/')) {
@@ -323,7 +324,7 @@ std::string getExecutableDir() {
         char* dir = dirname(result);
         return std::string(dir);
     }
-
+    
     // The caller can fall back to the argv[0] path when this lookup fails.
     return "";
 #endif
@@ -337,10 +338,10 @@ bool fileExists(const std::string& filepath) {
 // Utility function: find config file with priority
 std::string findConfigFile(const std::string& executablePath, bool verbose) {
     std::vector<std::string> searchPaths;
-
+    
     // Priority 1: Current directory
     searchPaths.push_back("./banewfn.rc");
-
+    
     // Priority 2: Executable directory. Platform APIs are preferred; argv[0]
     // remains a useful fallback on systems without /proc/self/exe.
     std::string execDir = getExecutableDir();
@@ -353,7 +354,7 @@ std::string findConfigFile(const std::string& executablePath, bool verbose) {
     if (!execDir.empty()) {
         searchPaths.push_back(execDir + "/banewfn.rc");
     }
-
+    
     // Priority 3: ~/.bane/wfn
     searchPaths.push_back(expandPath("~/.bane/wfn/banewfn.rc"));
 
@@ -371,7 +372,7 @@ std::string findConfigFile(const std::string& executablePath, bool verbose) {
         searchPaths.push_back(execDir + "/../share/banewfn/conf/banewfn.rc");
     }
 #endif
-
+    
     if (verbose) {
         std::cout << "Searching for banewfn.rc in the following locations:" << std::endl;
         for (const auto& path : searchPaths) {
@@ -379,7 +380,7 @@ std::string findConfigFile(const std::string& executablePath, bool verbose) {
         }
         std::cout << std::endl;
     }
-
+    
     for (const auto& path : searchPaths) {
         if (Utils::fileExists(path)) {
             if (verbose) {
@@ -388,7 +389,7 @@ std::string findConfigFile(const std::string& executablePath, bool verbose) {
             return path;
         }
     }
-
+    
     return "";
 }
 
@@ -404,21 +405,21 @@ bool ConfigManager::loadBaneWfnConfig(const std::string& configFile, bool requir
         std::cerr << "Error: Cannot open config file: " << configFile << std::endl;
         return false;
     }
-
+    
     std::string line;
     while (std::getline(file, line)) {
         line = Utils::trim(line);
-
+        
         // 去除行内注释
         line = Utils::removeInlineComment(line);
-
+        
         if (line.empty()) continue;
-
+        
         size_t pos = line.find('=');
         if (pos != std::string::npos) {
             std::string key = Utils::trim(line.substr(0, pos));
             std::string value = Utils::trim(line.substr(pos + 1));
-
+            
             if (key == "Multiwfn_exec") {
                 config.multiwfnExec = expandPath(Utils::trimQuotes(value));
             } else if (key == "confpath") {
@@ -442,18 +443,18 @@ bool ConfigManager::loadBaneWfnConfig(const std::string& configFile, bool requir
             }
         }
     }
-
+    
     file.close();
-
+    
     if (requireMultiwfnExec && config.multiwfnExec.empty()) {
         std::cerr << "Error: Multiwfn_exec not specified in config file" << std::endl;
         return false;
     }
-
+    
     if (config.confPath.empty()) {
         config.confPath = expandPath("~/.bane/wfn");
     }
-
+    
     return true;
 }
 
@@ -461,6 +462,9 @@ bool ConfigManager::loadBaneWfnConfig(const std::string& configFile, bool requir
 bool ConfigManager::parseModuleConfigStream(std::istream& in, const std::string& moduleName, const std::string& origin) {
     ModuleConfig modConfig;
     modConfig.origin = origin;
+    const std::string source((std::istreambuf_iterator<char>(in)), {});
+    Gui::parseMetadata(source, modConfig);
+    std::istringstream commandsStream(source);
     std::string line;
     std::string currentSection;
     bool inDefaultBlock = false;
@@ -469,7 +473,7 @@ bool ConfigManager::parseModuleConfigStream(std::istream& in, const std::string&
     std::size_t lineNumber = 0;
     bool ok = true;
 
-    while (std::getline(in, line)) {
+    while (std::getline(commandsStream, line)) {
         ++lineNumber;
         line = Utils::trim(line);
 
@@ -592,14 +596,14 @@ bool ConfigManager::loadModuleConfig(const std::string& moduleName) {
     if (moduleConfigs.find(moduleName) != moduleConfigs.end()) {
         return true;
     }
-
+    
     std::string confFile = config.confPath + "/" + moduleName + ".conf";
     std::ifstream file(confFile);
     if (!file.is_open()) {
         std::cerr << "Error: Cannot open module config file: " << confFile << std::endl;
         return false;
     }
-
+    
     std::cout << "Loading module configuration: " << confFile << std::endl;
 
     bool ok = parseModuleConfigStream(file, moduleName, confFile);
@@ -634,7 +638,7 @@ bool ConfigManager::hasModuleConfig(const std::string& moduleName) const {
 }
 
 // Replace placeholders in command string
-std::string replacePlaceholders(const std::string& cmd,
+std::string replacePlaceholders(const std::string& cmd, 
                                const std::map<std::string, std::string>& params) {
     std::string result = cmd;
 

@@ -49,6 +49,89 @@ impl Default for WorkflowManager {
 }
 
 impl WorkflowManager {
+    pub fn standalone(engine: PathBuf, startup: Option<&Path>) -> Self {
+        let mut manager = Self::new(None, startup);
+        manager.multiwfn = engine.canonicalize().ok().filter(|p| p.is_file());
+        manager
+    }
+
+    pub fn inspect(&self, request: &Value) -> Result<Value, String> {
+        let state = self.state.lock().map_err(|e| e.to_string())?;
+        let id = request["script"]
+            .as_str()
+            .ok_or("Select a workflow script")?;
+        let script = script_path(state.library.as_deref(), id)?;
+        read_script(&script)?;
+        let runner = self
+            .runner
+            .as_ref()
+            .ok_or("Workflow runner is not installed")?;
+        let directory = std::env::temp_dir().join(format!(
+            "banewfn-inspect-{}-{}",
+            std::process::id(),
+            RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        struct Scratch(PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _scratch = Scratch(directory.clone());
+        let conf = directory.join("conf");
+        fs::create_dir(&conf).map_err(|e| e.to_string())?;
+        copy_conf(&self.conf, &conf)?;
+        let source = script.parent().ok_or("Invalid script folder")?;
+        copy_conf(source, &conf)?;
+        copy_conf(&source.join("conf"), &conf)?;
+        let parameters = request.get("parameters").cloned().unwrap_or(json!({}));
+        let path = directory.join("parameters.json");
+        fs::write(
+            &path,
+            serde_json::to_vec(&parameters).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        let mut command = Command::new(runner);
+        command
+            .arg("--inspect-json")
+            .arg(runner_path(&script))
+            .arg("--conf-dir")
+            .arg(runner_path(&conf))
+            .arg("--parameters-json")
+            .arg(runner_path(&path))
+            .current_dir(&directory)
+            .stdin(Stdio::null());
+        if let Some(wfn) = &state.wavefunction {
+            command.arg("--wfn").arg(runner_path(wfn));
+        }
+        if let Some(vars) = request["variables"].as_array() {
+            for v in vars {
+                command
+                    .arg("--var")
+                    .arg(v.as_str().ok_or("Invalid variable")?);
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let output = command.output().map_err(|e| e.to_string())?;
+        let value: Value = serde_json::from_slice(&output.stdout).map_err(|e| {
+            format!(
+                "Cannot inspect script: {e}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        })?;
+        if !output.status.success() || value.get("error").is_some() {
+            return Err(value["error"]
+                .as_str()
+                .unwrap_or("Script inspection failed")
+                .to_owned());
+        }
+        Ok(value)
+    }
     pub fn new(multiwfn_pid: Option<u64>, startup_file: Option<&Path>) -> Self {
         let executable = std::env::current_exe().unwrap_or_default();
         let tools = executable.parent().unwrap_or(Path::new("."));
@@ -194,6 +277,12 @@ impl WorkflowManager {
     }
 
     pub fn start(&self, request: &Value) -> Result<(), String> {
+        if request.get("parameters").is_some() {
+            let inspection = self.inspect(request)?;
+            if inspection["runnable"] != true {
+                return Err(inspection["diagnostics"].to_string());
+            }
+        }
         let mut worker = self.worker.lock().map_err(|e| e.to_string())?;
         if self.stopped.load(Ordering::Acquire) {
             return Err("Workflow host is closing".into());
@@ -301,6 +390,18 @@ impl WorkflowManager {
             }
             let log = File::create(directory.join("workflow.log")).map_err(|e| e.to_string())?;
             let mut command = Command::new(runner);
+            if let Some(parameters) = request.get("parameters") {
+                fs::write(
+                    directory.join("parameters.json"),
+                    serde_json::to_vec_pretty(parameters).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
+                fs::write(
+                    directory.join("workflow-request.json"),
+                    serde_json::to_vec_pretty(request).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
+            }
             command
                 .arg(script.file_name().ok_or("Invalid script name")?)
                 .arg("--cores")
@@ -308,10 +409,17 @@ impl WorkflowManager {
             if let Some(wfn) = &state.wavefunction {
                 // Preserve the loaded session's identity, even if its input has
                 // since moved or disappeared. Only legacy rc paths are adapted.
-                command.arg("--wfn").arg(wfn);
+                if self.session.get().is_some() {
+                    command.arg("--wfn").arg(wfn);
+                } else {
+                    command.arg("--wfn").arg(runner_path(wfn));
+                }
             }
             for variable in &variables {
                 command.arg("--var").arg(variable);
+            }
+            if request.get("parameters").is_some() {
+                command.arg("--parameters-json").arg("parameters.json");
             }
             if dry_run {
                 command.arg("--dryrun");

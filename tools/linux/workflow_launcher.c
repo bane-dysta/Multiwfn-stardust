@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifndef BANEWFN_ENTRY
+#define BANEWFN_ENTRY 0
+#endif
 
 int main(int argc, char **argv) {
     char executable[PATH_MAX];
@@ -20,7 +23,7 @@ int main(int argc, char **argv) {
     *slash = '\0';
     const char suffix[] = "/run-workflows-gui";
     char *script = malloc(strlen(executable) + sizeof(suffix));
-    char **arguments = calloc((size_t)argc + 1, sizeof(*arguments));
+    char **arguments = calloc((size_t)argc + 2, sizeof(*arguments));
     if (!script || !arguments) {
         fprintf(stderr, "Multiwfn: out of memory\n");
         free(script);
@@ -30,7 +33,8 @@ int main(int argc, char **argv) {
     strcpy(script, executable);
     strcat(script, suffix);
     arguments[0] = script;
-    for (int i = 1; i < argc; ++i) arguments[i] = argv[i];
+    if (BANEWFN_ENTRY) arguments[1] = "--workbench";
+    for (int i = 1; i < argc; ++i) arguments[i + BANEWFN_ENTRY] = argv[i];
     execv(script, arguments);
     fprintf(stderr, "Multiwfn: cannot start %s: %s\n", script, strerror(errno));
     free(arguments);

@@ -5,6 +5,10 @@ derived from BaneWfn by Bane Dysta, version 1.5.6rc5, commit
 `9e645fa94581d0c5aa640f3d3b4f2dedc8aed14c`.
 Source: https://github.com/bane-dysta/banewfn
 
+GUI annotations, JSON inspection and scoped parameter overrides are synchronized
+from the 1.6.0rc1 worktree based on `05dcdbf970e8510ffd410f26568e1ec63f8352ce`.
+Their canonical implementation is maintained in the BaneWfn repository.
+
 BaneWfn material retains its Apache License 2.0 in `banewfn/LICENSE`. The
 surrounding Multiwfn repository retains its own `LICENSE.txt` and attribution
 requirements. Include both licenses when distributing the optional runner.

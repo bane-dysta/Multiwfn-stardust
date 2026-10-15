@@ -6,6 +6,7 @@ string(STRIP "${BANEWFN_VERSION}" BANEWFN_VERSION)
 set(BANEWFN_SOURCES
   common/citation.cpp common/config.cpp common/grep_dsl.cpp
   common/inline_conf.cpp common/input.cpp common/ui.cpp common/utils.cpp
+  common/gui.cpp
   banewfn/application.cpp banewfn/grep_engine.cpp banewfn/promolecule.cpp
 )
 list(TRANSFORM BANEWFN_SOURCES PREPEND "banewfn/src/")

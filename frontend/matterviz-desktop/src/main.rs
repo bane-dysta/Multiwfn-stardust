@@ -38,6 +38,9 @@ use lifecycle::StartupStatus;
 use service::HttpService;
 
 fn main() -> ExitCode {
+    if env::args().nth(1).as_deref() == Some("--workbench") {
+        return launch_workbench();
+    }
     #[cfg(any(unix, windows))]
     if env::args().nth(1).as_deref() == Some("--launch") {
         return launch_session();
@@ -107,6 +110,53 @@ fn main() -> ExitCode {
 }
 
 #[cfg(any(unix, windows))]
+fn launch_workbench() -> ExitCode {
+    let result = (|| -> Result<(), String> {
+        let executable = env::current_exe().map_err(|e| e.to_string())?;
+        let resources = executable
+            .parent()
+            .and_then(Path::parent)
+            .ok_or("Invalid installation")?;
+        let root = resources.parent().ok_or("Missing installation directory")?;
+        let engine = if resources.file_name().is_some_and(|n| n == "Resources") {
+            root.join("MacOS/Multiwfn_MatterVizGUI")
+        } else {
+            root.join(if cfg!(windows) {
+                "Multiwfn_MatterVizGUI.exe"
+            } else {
+                "Multiwfn_MatterVizGUI"
+            })
+        };
+        let startup = env::args_os().nth(2).map(std::path::PathBuf::from);
+        let service = service::WorkbenchService::start(
+            resources.join("frontend/matterviz-viewer/dist"),
+            engine,
+            startup.as_deref(),
+        )?;
+        let page = Url::parse(&service.url).map_err(|e| e.to_string())?;
+        eprintln!("BaneWfn workbench: {}", service.url);
+        let result = tauri::Builder::default()
+            .setup(move |app| {
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::External(page))
+                    .title("BaneWfn")
+                    .inner_size(1200.0, 820.0)
+                    .min_inner_size(900.0, 600.0)
+                    .build()?;
+                Ok(())
+            })
+            .run(tauri::generate_context!());
+        service.shutdown();
+        result.map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("BaneWfn: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
 fn launch_session() -> ExitCode {
     let launch = || -> Result<(Arc<HttpService>, Arc<session_engine::SessionEngine>), String> {
         let executable = env::current_exe().map_err(|e| e.to_string())?;

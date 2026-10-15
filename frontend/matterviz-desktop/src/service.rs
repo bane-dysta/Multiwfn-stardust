@@ -30,6 +30,222 @@ use socket2::{Domain, Protocol, Socket, Type};
 const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(300);
 const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
 const MAX_PLOT_EXPORT_BYTES: usize = 64 * 1024 * 1024;
+
+fn pick_parameter_path(body: &[u8]) -> Result<Value, String> {
+    let value: Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
+    let kind = match value["type"].as_str() {
+        Some("file") => "wavefunction",
+        Some("directory") => "results",
+        _ => return Err("Invalid parameter path type".into()),
+    };
+    Ok(json!({"path": crate::file_dialog::select_workflow_path(kind)?}))
+}
+
+/// Workflow-only host. No molecule, control transport or volume store is created.
+pub struct WorkbenchService {
+    pub url: String,
+    workflows: Arc<WorkflowManager>,
+    stopped: Arc<AtomicBool>,
+    thread: Mutex<Option<thread::JoinHandle<()>>>,
+}
+impl WorkbenchService {
+    pub fn start(
+        frontend: PathBuf,
+        engine: PathBuf,
+        startup: Option<&Path>,
+    ) -> Result<Self, String> {
+        let frontend = frontend.canonicalize().map_err(|e| e.to_string())?;
+        if !frontend.join("index.html").is_file() {
+            return Err("BaneWfn frontend is missing".into());
+        }
+        let workflows = Arc::new(WorkflowManager::standalone(engine, startup));
+        let listener = bind("127.0.0.1", 0)?;
+        listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+        let authority = listener
+            .local_addr()
+            .map_err(|e| e.to_string())?
+            .to_string();
+        let cap = new_capability()?;
+        let url = format!("http://{authority}/index.html?workbench=1&cap={cap}");
+        let stopped = Arc::new(AtomicBool::new(false));
+        let stop = stopped.clone();
+        let manager = workflows.clone();
+        let handle = thread::spawn(move || {
+            let mut requests = Vec::new();
+            while !stop.load(Ordering::Acquire) {
+                requests.retain(|h: &thread::JoinHandle<()>| !h.is_finished());
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        if requests.len() >= 16 {
+                            continue;
+                        }
+                        let manager = manager.clone();
+                        let authority = authority.clone();
+                        let cap = cap.clone();
+                        let frontend = frontend.clone();
+                        requests.push(thread::spawn(move || {
+                            let _ = stream.set_nonblocking(false);
+                            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                            let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
+                            let request = match read_http_request(&mut stream) {
+                                Ok(r) => r,
+                                Err(_) => {
+                                    respond(&mut stream, 400, "text/plain", b"Bad Request", false);
+                                    return;
+                                }
+                            };
+                            if request.host != authority {
+                                respond(&mut stream, 403, "text/plain", b"Invalid Host", false);
+                                return;
+                            }
+                            let mut parts = request.first.split_whitespace();
+                            let method = parts.next().unwrap_or("");
+                            let target = parts.next().unwrap_or("/");
+                            let (raw, query) = target.split_once('?').unwrap_or((target, ""));
+                            let path = match decode_path(raw) {
+                                Ok(p) => p,
+                                Err(_) => return,
+                            };
+                            let query: Vec<_> = url::form_urlencoded::parse(query.as_bytes())
+                                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                                .collect();
+                            if let Some(action) = path.strip_prefix("/api/workflows/") {
+                                if !has_capability(&query, &cap) {
+                                    respond(
+                                        &mut stream,
+                                        403,
+                                        "text/plain",
+                                        b"Invalid capability",
+                                        false,
+                                    );
+                                    return;
+                                }
+                                let expected = if matches!(action, "status" | "preview") {
+                                    "GET"
+                                } else {
+                                    "POST"
+                                };
+                                if method != expected {
+                                    respond(
+                                        &mut stream,
+                                        405,
+                                        "text/plain",
+                                        b"Method Not Allowed",
+                                        false,
+                                    );
+                                    return;
+                                }
+                                if request.body.len() > 256 * 1024 {
+                                    respond(
+                                        &mut stream,
+                                        413,
+                                        "text/plain",
+                                        b"Payload Too Large",
+                                        false,
+                                    );
+                                    return;
+                                }
+                                let result = (|| -> Result<Value, String> {
+                                    if action == "status" {
+                                        return Ok(manager.status());
+                                    }
+                                    if action == "preview" {
+                                        return manager.preview(
+                                            query
+                                                .iter()
+                                                .find(|(k, _)| k == "script")
+                                                .map(|(_, v)| v.as_str())
+                                                .unwrap_or(""),
+                                        );
+                                    }
+                                    let value: Value = serde_json::from_slice(&request.body)
+                                        .map_err(|e| e.to_string())?;
+                                    match action {
+                                        "inspect" => manager.inspect(&value),
+                                        "parameter-path" => pick_parameter_path(&request.body),
+                                        "pick" => {
+                                            let kind = value["kind"]
+                                                .as_str()
+                                                .ok_or("Invalid selection")?;
+                                            if let Some(path) =
+                                                crate::file_dialog::select_workflow_path(kind)?
+                                            {
+                                                manager.select(kind, &path)?;
+                                            }
+                                            Ok(manager.status())
+                                        }
+                                        "run" => {
+                                            manager.start(&value)?;
+                                            Ok(manager.status())
+                                        }
+                                        "cancel" => {
+                                            manager.cancel();
+                                            Ok(manager.status())
+                                        }
+                                        _ => Err("Unknown workflow action".into()),
+                                    }
+                                })();
+                                match result {
+                                    Ok(value) => respond_json(&mut stream, &value, 200, false),
+                                    Err(error) => respond_json(
+                                        &mut stream,
+                                        &json!({"message":error}),
+                                        400,
+                                        false,
+                                    ),
+                                }
+                            } else if matches!(method, "GET" | "HEAD") {
+                                let relative = if path == "/" {
+                                    "index.html"
+                                } else {
+                                    path.trim_start_matches('/')
+                                };
+                                match safe_join(&frontend, relative) {
+                                    Ok(file) if file.is_file() => {
+                                        serve_file(&mut stream, &file, method == "HEAD")
+                                    }
+                                    _ => {
+                                        respond(&mut stream, 404, "text/plain", b"Not Found", false)
+                                    }
+                                }
+                            } else {
+                                respond(
+                                    &mut stream,
+                                    405,
+                                    "text/plain",
+                                    b"Method Not Allowed",
+                                    false,
+                                );
+                            }
+                        }));
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(20))
+                    }
+                    Err(_) => break,
+                }
+            }
+            for request in requests {
+                let _ = request.join();
+            }
+        });
+        Ok(Self {
+            url,
+            workflows,
+            stopped,
+            thread: Mutex::new(Some(handle)),
+        })
+    }
+    pub fn shutdown(&self) {
+        self.stopped.store(true, Ordering::Release);
+        self.workflows.shutdown();
+        if let Ok(mut thread) = self.thread.lock() {
+            if let Some(handle) = thread.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+}
 static PLOT_EXPORT_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn session_bootstrap_wait_timeout(stage_timeout: Duration) -> Duration {
@@ -747,6 +963,10 @@ impl ServiceRunner {
                 return;
             }
             let result = match action {
+                "inspect" => serde_json::from_slice(body)
+                    .map_err(|e| e.to_string())
+                    .and_then(|value| self.workflows.inspect(&value)),
+                "parameter-path" => pick_parameter_path(body),
                 "status" => Ok(self.workflows.status()),
                 "preview" => self.workflows.preview(
                     query
@@ -3865,6 +4085,35 @@ mod tests {
             host => host.to_string(),
         };
         format!("{host}:{}", url.port().unwrap())
+    }
+
+    #[test]
+    fn standalone_workbench_needs_no_molecule_and_requires_capability() {
+        let root = fixture("standalone-workbench");
+        let frontend = root.join("frontend");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "BaneWfn").unwrap();
+        let service = super::WorkbenchService::start(frontend, root.join("engine"), None).unwrap();
+        let page = url::Url::parse(&service.url).unwrap();
+        let cap = page
+            .query_pairs()
+            .find(|(k, _)| k == "cap")
+            .unwrap()
+            .1
+            .into_owned();
+        assert!(request(&service.url, "GET", "/index.html").contains("BaneWfn"));
+        assert!(request(&service.url, "GET", "/api/workflows/status").starts_with("HTTP/1.1 403"));
+        let response = request(
+            &service.url,
+            "GET",
+            &format!("/api/workflows/status?cap={cap}"),
+        );
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.contains("\"wavefunction\":null"));
+        assert!(response.contains("\"session\":null"));
+        assert!(!root.join("session").exists());
+        service.shutdown();
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn fixture(name: &str) -> PathBuf {

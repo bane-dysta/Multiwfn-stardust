@@ -2,10 +2,11 @@
   import { onDestroy } from 'svelte'
   import { Workflow, FolderOpen, FileCode2, FileText, Play, Square, Check, X, Terminal, Cpu, SlidersHorizontal } from '@lucide/svelte'
   import * as Tabs from '$lib/components/ui/tabs'
-  import { t } from './i18n'
-  import { create_workflow_client, workflow_active, workflow_variables, type WorkflowStatus, type WorkflowSelection } from './workflows'
+  import { t, locale, set_locale } from './i18n'
+  import { create_workflow_client, workflow_active, workflow_variables, display_path, type WorkflowStatus, type WorkflowSelection, type WorkflowInspection, type WorkflowField } from './workflows'
 
   export let open = false
+  export let standalone = false
   export let onclose: (() => void) | undefined = undefined
   export let onrefresh: (() => void) | undefined = undefined
   const client = create_workflow_client()
@@ -13,6 +14,34 @@
   let selected = ''
   let source = ''
   let variables = ''
+  let parameters: Record<string, string> = {}
+  let inspection: WorkflowInspection | undefined
+  let inspectBusy = false
+  let inspectValid = false
+  let inspectGeneration = 0
+  let nativePreview = false
+  let inspectTimer: ReturnType<typeof setTimeout> | undefined
+  const inspect = async (): Promise<void> => {
+    const generation = ++inspectGeneration
+    if (!selected) return
+    inspectBusy = true
+    inspectValid = false
+    try {
+      const next = await client.inspect(selected, parameters, workflow_variables(variables))
+      if (!destroyed && generation === inspectGeneration) { inspection = next; inspectValid = true; error = '' }
+    } catch (reason) { if (generation === inspectGeneration) show_error(reason) }
+    finally { if (generation === inspectGeneration) inspectBusy = false }
+  }
+  const change = (field: WorkflowField, value: string): void => {
+    parameters = { ...parameters, [field.id]: value }
+    inspectBusy = true; inspectGeneration++
+    if (inspectTimer) clearTimeout(inspectTimer)
+    inspectTimer = setTimeout(() => void inspect(), 300)
+  }
+  const reset = (field: WorkflowField): void => { const next = { ...parameters }; delete next[field.id]; parameters = next; void inspect() }
+  const parameterPath = async (field: WorkflowField): Promise<void> => {
+    try { const path = await client.parameterPath(field.type); if (path) change(field, display_path(path)) } catch (reason) { show_error(reason) }
+  }
   let cores = 1
   let error = ''
   let busy = false
@@ -26,12 +55,13 @@
 
   const show_error = (reason: unknown): void => { if (!destroyed) error = reason instanceof Error ? reason.message : String(reason) }
   const preview = async (id: string): Promise<void> => {
-    selected = id; source = ''
+    selected = id; source = ''; parameters = {}; inspection = undefined; inspectGeneration++
+    if (inspectTimer) clearTimeout(inspectTimer)
     const generation = ++previewGeneration
     if (!id) return
     try {
       const text = await client.preview(id)
-      if (!destroyed && generation === previewGeneration) source = text
+      if (!destroyed && generation === previewGeneration) { source = text; await inspect() }
     } catch (reason) { if (generation === previewGeneration) show_error(reason) }
   }
   const apply = (next: WorkflowStatus): void => {
@@ -54,6 +84,7 @@
     try {
       apply(await client.pick(kind))
       if (kind === 'library') await preview(status?.scripts[0]?.id ?? '')
+      else if (kind === 'wavefunction') await inspect()
     } catch (reason) { show_error(reason) }
     finally { busy = false; schedule() }
   }
@@ -61,7 +92,7 @@
     if (busy || workflow_active(status?.job ?? null)) return
     busy = true; error = ''; outputView = 'log'
     try {
-      apply(await client.run({ script: selected, cores, variables: workflow_variables(variables), dryRun }))
+      apply(await client.run({ script: selected, cores, variables: workflow_variables(variables), dryRun, parameters }))
       activeTab = 'results'
     }
     catch (reason) { show_error(reason); await refresh() }
@@ -73,21 +104,24 @@
     finally { busy = false; schedule() }
   }
   $: running = workflow_active(status?.job ?? null)
-  $: canRun = status?.available && selected && status?.results && status?.multiwfn && !running && !busy
-  $: sourceLines = source ? source.split('\n').map((_, index) => index + 1).join('\n') : ''
-  $: if (open && dialog && !dialog.open) dialog.showModal()
+  $: canRun = status?.available && selected && status?.results && status?.multiwfn && inspection?.runnable && inspectValid && !inspectBusy && !running && !busy
+  $: previewText = nativePreview ? (inspection?.tasks ?? []).map(task => `# ${task.task + 1} · ${task.module || 'raw'}\n${task.commands}`).join('\n') : source
+  $: sourceLines = previewText ? previewText.split('\n').map((_, index) => index + 1).join('\n') : ''
+  $: groups = [...new Set((inspection?.fields ?? []).map(field => field.group))]
+  $: if (open && dialog && !dialog.open) { if (standalone) dialog.show(); else dialog.showModal() }
   $: {
     if (open && !wasOpen) { error = ''; void refresh() }
     wasOpen = open
   }
-  onDestroy(() => { destroyed = true; previewGeneration++; if (timer) clearTimeout(timer) })
+  onDestroy(() => { destroyed = true; previewGeneration++; inspectGeneration++; if (timer) clearTimeout(timer); if (inspectTimer) clearTimeout(inspectTimer) })
 </script>
 
 {#if open}
-  <dialog bind:this={dialog} class="workflow-panel" aria-labelledby="workflow-heading" oncancel={(event) => { event.preventDefault(); onclose?.() }}>
+  <dialog bind:this={dialog} class="workflow-panel" class:standalone aria-labelledby="workflow-heading" oncancel={(event) => { event.preventDefault(); onclose?.() }}>
     <header class="workflow-header">
-      <div class="workflow-title"><span class="workflow-mark"><Workflow size={20} /></span><h2 id="workflow-heading">{$t('Workflows')}</h2></div>
-      <button class="workflow-close" type="button" aria-label={$t('Close workflows')} onclick={onclose}><X size={20} /></button>
+      <div class="workflow-title"><span class="workflow-mark"><Workflow size={20} /></span><h2 id="workflow-heading">{standalone ? 'BaneWfn' : $t('Workflows')}</h2></div>
+      {#if standalone}<button type="button" onclick={() => set_locale($locale === 'zh' ? 'en' : 'zh')}>{$locale === 'zh' ? 'English' : '中文'}</button>{/if}
+      {#if !standalone}<button class="workflow-close" type="button" aria-label={$t('Close workflows')} onclick={onclose}><X size={20} /></button>{/if}
     </header>
     {#if status?.session}<p class="workflow-session">{$t('Current session')} · PID {status.session.pid}</p>{/if}
     {#if error}<p class="workflow-error workflow-banner" role="alert">{$t(error)}</p>{/if}
@@ -95,12 +129,16 @@
     {#if status?.available && !status.multiwfn}<p class="workflow-error workflow-banner" role="alert">{$t('The running Multiwfn executable could not be located.')}</p>{/if}
     <div class="workflow-layout">
       <section class="workflow-library" aria-labelledby="workflow-library-heading">
+        <div class="workflow-field">
+          <label for="workflow-startup">{$t('Startup file')}</label>
+          <button id="workflow-startup" class="workflow-picker" type="button" aria-label={$t('Choose startup file')} title={display_path(status?.wavefunction)} onclick={() => pick('wavefunction')} disabled={busy || running}><span>{display_path(status?.wavefunction) || $t('Choose startup file')}</span><FolderOpen size={17} /></button>
+        </div>
         <div class="workflow-catalog">
           <div class="workflow-section-heading">
             <h3 id="workflow-library-heading">{$t('Scripts')} <span class="workflow-count">{status?.scripts.length ?? 0}</span></h3>
             <button class="workflow-folder" type="button" aria-label={$t('Choose script folder')} title={$t('Choose script folder')} onclick={() => pick('library')} disabled={busy || running}><FolderOpen size={17} /></button>
           </div>
-          <p class="workflow-library-path" title={status?.library ?? ''}>{status?.library ?? '—'}</p>
+          <p class="workflow-library-path" title={display_path(status?.library)}>{display_path(status?.library) || '—'}</p>
           {#if status?.catalogError}<p class="workflow-error" role="alert">{status.catalogError}</p>{/if}
           <div class="workflow-script-list" role="group" aria-label={$t('Scripts')}>
             {#each status?.scripts ?? [] as script}
@@ -124,26 +162,46 @@
           <Tabs.Content value="settings" class="min-h-0 min-w-0 overflow-auto m-0">
             <div class="workflow-settings">
               <div class="workflow-field">
-                <label for="workflow-startup">{$t('Startup file')}</label>
-                <button id="workflow-startup" class="workflow-picker" class:unselected={!status?.wavefunction} type="button" aria-label={$t(status?.session ? 'Load startup file' : 'Choose startup file')} title={status?.wavefunction ?? $t('Choose startup file')} onclick={() => pick('wavefunction')} disabled={busy || running}><span>{status?.wavefunction ?? $t('Choose startup file')}</span><FolderOpen size={17} /></button>
-              </div>
-              <div class="workflow-field">
                 <label for="workflow-results">{$t('Results folder')}</label>
-                <button id="workflow-results" class="workflow-picker" class:unselected={!status?.results} type="button" aria-label={$t('Choose results folder')} title={status?.results ?? $t('Choose results folder')} onclick={() => pick('results')} disabled={busy || running}><span>{status?.results ?? $t('Choose results folder')}</span><FolderOpen size={17} /></button>
+                <button id="workflow-results" class="workflow-picker" class:unselected={!status?.results} type="button" aria-label={$t('Choose results folder')} title={display_path(status?.results)} onclick={() => pick('results')} disabled={busy || running}><span>{display_path(status?.results) || $t('Choose results folder')}</span><FolderOpen size={17} /></button>
               </div>
               <div class="workflow-parameters">
                 <div class="workflow-field"><label for="workflow-cores"><Cpu size={14} />{$t('CPU cores')}</label><input id="workflow-cores" type="number" min="1" max="1024" step="1" bind:value={cores} disabled={busy || running} /></div>
-                <div class="workflow-field"><label for="workflow-variables">{$t('Variables')}</label><textarea id="workflow-variables" rows="2" bind:value={variables} placeholder="grid=1" disabled={busy || running}></textarea></div>
               </div>
+              {#each groups as group}
+                <fieldset class="parameter-group" disabled={busy || running}>
+                  <legend>{group}</legend>
+                  {#each inspection?.fields.filter(field => field.group === group) ?? [] as field (field.id)}
+                    <div class="parameter-row">
+                      <label for={'parameter-' + field.id} title={field.help}>{field.label}{#if field.unit} ({field.unit}){/if}</label>
+                      <div class="parameter-control">
+                        {#if field.type === 'select' || field.type === 'boolean'}
+                          <select id={'parameter-' + field.id} value={parameters[field.id] ?? field.value} onchange={event => change(field, event.currentTarget.value)}>
+                            {#if !field.options.some(option => option.value === (parameters[field.id] ?? field.value))}<option value={parameters[field.id] ?? field.value}>{parameters[field.id] ?? field.value}</option>{/if}
+                            {#each field.options as option}<option value={option.value}>{option.label}</option>{/each}
+                          </select>
+                        {:else}
+                          <input id={'parameter-' + field.id} type={field.type === 'number' ? 'number' : 'text'} step="any" value={parameters[field.id] ?? field.value} oninput={event => change(field, event.currentTarget.value)} />
+                          {#if field.type === 'file' || field.type === 'directory'}<button type="button" aria-label={$t('Choose file')} onclick={() => parameterPath(field)}><FolderOpen size={16} /></button>{/if}
+                        {/if}
+                        {#if field.id in parameters}<button type="button" title={$t('Reset parameter')} aria-label={$t('Reset parameter')} onclick={() => reset(field)}>↺</button>{/if}
+                      </div>
+                    </div>
+                  {/each}
+                </fieldset>
+              {/each}
+              {#if inspection && !inspection.fields.length}<p class="workflow-empty">{$t('This script has no configurable parameters.')}</p>{/if}
+              {#if inspection?.diagnostics.length}<details><summary>{$t('Script notes')}</summary>{#each inspection.diagnostics as note}<p>{note}</p>{/each}</details>{/if}
+              <details class="advanced-variables"><summary>{$t('Additional variables')}</summary><textarea aria-label={$t('Variables')} bind:value={variables} oninput={() => { if (inspectTimer) clearTimeout(inspectTimer); inspectBusy = true; inspectTimer = setTimeout(() => void inspect(), 300) }} disabled={busy || running}></textarea></details>
             </div>
           </Tabs.Content>
           <Tabs.Content value="preview" class="min-h-0 min-w-0 m-0">
             <div class="workflow-preview-page">
               <section class="workflow-preview" aria-label={$t('Script preview')}>
-                <div class="workflow-preview-heading"><FileCode2 size={16} /><span title={selected}>{selected || '—'}</span></div>
+                <div class="workflow-preview-heading"><FileCode2 size={16} /><span title={selected}>{selected || '—'}</span><select aria-label={$t('Preview content')} bind:value={nativePreview}><option value={false}>{$t('Original script')}</option><option value={true}>{$t('Multiwfn input')}</option></select></div>
                 <div class="workflow-code">
                   <pre class="workflow-line-numbers" aria-hidden="true">{sourceLines}</pre>
-                  <pre class="workflow-source"><code>{source}</code></pre>
+                  <pre class="workflow-source"><code>{previewText}</code></pre>
                 </div>
               </section>
             </div>
@@ -162,7 +220,7 @@
                 {#if outputView === 'log'}
                   <pre class="workflow-log">{status.job.log}</pre>
                 {:else}
-                  <div class="workflow-result-files"><p class="workflow-result-path">{status.job.directory}</p><ul>{#each status.job.files as file}<li><FileText size={14} /><span>{file}</span></li>{/each}</ul></div>
+                  <div class="workflow-result-files"><p class="workflow-result-path">{display_path(status.job.directory)}</p><ul>{#each status.job.files as file}<li><FileText size={14} /><span>{file}</span></li>{/each}</ul></div>
                 {/if}
               {:else}
                 <div class="workflow-output-empty"><Terminal size={24} /><p>{$t('No runs yet')}</p></div>
@@ -187,6 +245,18 @@
 {/if}
 
 <style>
+  .workflow-panel.standalone { width: 100%; height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
+  .parameter-group { padding: 18px 0; margin: 12px 0; border: 0; border-top: 1px solid var(--ui-border); }
+  .parameter-group legend { padding-right: 12px; font-weight: 600; }
+  .parameter-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr); gap: 18px; align-items: center; margin-bottom: 14px; }
+  .parameter-row label { margin: 0; }
+  .parameter-control { display: flex; gap: 6px; min-width: 0; }
+  .parameter-control input, .parameter-control select { flex: 1; min-width: 0; }
+  select { height: 39px; border: 1px solid var(--ui-border); border-radius: 7px; padding: 8px 10px; color: inherit; background: var(--ui-background); font: inherit; }
+  .workflow-preview-heading select { margin-left: auto; }
+  details { margin-top: 18px; color: var(--ui-muted-foreground); }
+  summary { cursor: pointer; }
+  details textarea { margin-top: 12px; }
   .workflow-session { margin: 0; padding: 0 22px 8px; font-size: 13px; color: var(--muted-foreground); }
   .workflow-panel::backdrop { background: #18293866; backdrop-filter: blur(3px); }
   .workflow-panel { position: fixed; inset: 0; margin: auto; padding: 0; width: min(1120px, calc(100% - 48px)); height: min(760px, calc(100dvh - 48px)); max-width: none; max-height: none; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 16px; background: var(--ui-background); color: var(--ui-foreground); box-shadow: 0 24px 80px #13253440; font-size: 13px; }

@@ -1,4 +1,5 @@
 #include "banewfn/application.h"
+#include "common/gui.h"
 #include "banewfn/session_execution.h"
 
 #include <iostream>
@@ -1455,22 +1456,7 @@ private:
 
         const Section& section = modConfig.sections.at(sectionName);
 
-        // Merge default values and provided parameters
-        // Only override defaults if provided value is non-empty, to mimic ${var:-default}
-        std::map<std::string, std::string> finalParams = section.defaults;
-        for (const auto& param : params) {
-            if (!param.second.empty()) {
-                finalParams[param.first] = param.second;
-            }
-        }
-
-        // Generate commands
-        for (const auto& cmd : section.commands) {
-            auto expanded = replacePlaceholdersExpanded(cmd, finalParams);
-            result.insert(result.end(), expanded.begin(), expanded.end());
-        }
-
-        return result;
+        return Gui::commands(section, params);
     }
 
     // Generate Multiwfn input script for a single task.
@@ -2447,6 +2433,8 @@ public:
         }
 
         std::map<std::string, std::vector<std::string>> allCustomVars = options.customVars;
+        const auto guiValues = Gui::readValues(options.parametersJson);
+        Gui::variables(allCustomVars, guiValues);
 
         // Interactive variables: allow defining "var=?" at the top of input file
         // (or via -v/--var var=?) to request the value from user at runtime.
@@ -2596,6 +2584,7 @@ public:
                 // 为当前文件和当前变量组合创建任务副本并应用占位符替换
                 std::vector<ModuleTask> fileTasks = tasks;
                 InputParser::applyPlaceholderReplacement(fileTasks, finalWfnFile, currentVars);
+                Gui::apply(fileTasks, configManager, guiValues);
 
                 // Execute each module task in sequence, allowing wfn_rebase directives
                 // to switch the file provided to subsequent Multiwfn invocations.
@@ -2780,6 +2769,8 @@ void printUsage(const char* progName) {
 }
 
 int BaneWfn::run(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--inspect-json") return Gui::inspect(argc, argv);
 #ifdef _WIN32
     // Ensure Windows console uses UTF-8 for input/output to avoid garbled ASCII art
     // and other UTF-8 text when double-click launching.
@@ -2937,6 +2928,9 @@ int BaneWfn::run(int argc, char* argv[]) {
                 std::cerr << "Error: -w/--wfn requires an argument" << std::endl;
                 return 1;
             }
+        } else if (arg == "--parameters-json") {
+            if (++i == argc) { std::cerr << "Missing parameters JSON file\n"; return 2; }
+            options.parametersJson = argv[i];
         } else if (arg == "-v" || arg == "--var") {
             if (i + 1 < argc) {
                 std::string varArg = argv[i + 1];

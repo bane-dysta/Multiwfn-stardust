@@ -1,5 +1,90 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Independent BaneWfn workbench — 2026-10-15 (in verification)
+
+Baseline remains `ea0befc3aad728bdd61ede9b45a68725df490f5d`; prior work is
+preserved, including the tested `e73c37f3ac576529424ec1e4de4645d35f7d2031`
+snapshot. The new entry uses the existing Rust/Tauri + Svelte framework and
+starts a batch Multiwfn only when a workflow runs. It does not require a molecule
+manifest or a persistent session. The scientific sources are unchanged.
+
+Canonical BaneWfn 1.6.0rc1 implements conf comment annotations, JSON inspection
+and scoped overrides; these are synchronized into the embedded runner with the
+existing shell/path and session adapters retained. The UI uses parser-generated
+fields, separate repeated-step values, a native-input preview and ordinary
+Windows path display. Linux/Windows launchers and macOS packaging add an
+independent BaneWfn entry.
+
+Local validation: frontend type check/build passed; standalone and existing
+panel browser tests passed. Headless Rust: 145 passed, 1 live test intentionally
+ignored, clippy clean. The first sandbox run could not open sockets and was
+terminated; the same tests passed with local socket access. Core CLI: 4 CTest
+targets passed, including inspection/dry-run parity and inline conf tests.
+Cross-platform Actions and native Windows chemistry validation are pending.
+
+Local entry: `build/banewfn`. UI screenshots: `build/workbench-ui/`.
+
+## Windows runner path compatibility — 2026-10-13 (accepted)
+
+Release: `workflows-winpath1`. Code commit
+`e73c37f3ac576529424ec1e4de4645d35f7d2031`, independent branch
+`ci/banewfn-windows-path-20261013`. Actions run:
+https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38379097903 .
+All four test/package jobs passed; tag-only publication/signing were skipped.
+
+The user's real Windows job records exposed two boundary failures: engine-first
+runs passed a canonical `\\?\` executable path to cmd.exe, and desktop-owned
+runs passed a verbatim conf directory to the C++ loader, which appends
+`/grid.conf`. The former failed to start and the latter could not open the
+configuration. The inline `.bwc` and raw-block session checks previously missed
+the external-conf case; the standalone batch check manually supplied normalized
+paths and missed host-generated configuration entirely.
+
+The host now converts only `Multiwfn_exec` and `confpath` in its generated rc file
+to ordinary Windows drive/UNC paths. Canonical paths remain in host file I/O,
+containment checks and startup/session identity; moved or removed source files
+still do not trigger a reload. No C++ parser or scientific code is changed.
+
+Validation completed locally:
+
+- On the user's real Windows host, a cross-compiled headless harness ran the
+  production service against the existing downloaded native engine and runner.
+  Both batch and persistent external-conf XYZ export passed; inline modules,
+  retained state after source removal, cancellation, UTF-8 reload and GUI
+  transport also passed (PID 12572, 4.92 s). Independent check directory:
+  `C:\Users\Bane\AppData\Local\Temp\multiwfn-path-fix-20261013-2`.
+- Windows drive/UNC/Chinese path unit test: 1 passed. Linux headless suite:
+  144 passed; extended live test: passed (PID 2588585, 2.44 s).
+- Complete local GUI build and headless clippy passed. Local checks use only
+  native menu state and XYZ/Cube I/O; benzene Mayer/density computation was not
+  rerun locally and the user's existing inputs/results were not modified.
+- Evidence: `build/windows-path-live2.log`, `build/windows-path-linux-unit.log`,
+  `build/windows-path-linux-live.log`, `build/windows-path-local-build.log`.
+
+Final package validation:
+
+- Windows CI: 116 host tests and 120 headless tests passed, including the new
+  path unit test. Extracted-package batch/persistent external-conf regression
+  passed (PID 7612, 8.78 s). Linux and macOS packaging and tests also passed.
+- The downloaded Windows ZIP matches GitHub's published SHA-256
+  `2669432d18e2053b981c821584a2504e9a8af8dda702a786d978ededf8c8e02a`.
+  It was unpacked into the new `C:\Users\Bane\Downloads\Multiwfn-Windows-winpath1`
+  folder; the previous package was not overwritten.
+- Real Windows WebView on this host: external `.bw` and inline `.bwc` XYZ
+  exports completed, the shipped `density.bw` prepared successfully, all using
+  engine PID 35344. Return closed the GUI with exit code 0. No scientific
+  calculation was requested. Evidence: `build/windows-path-real-gui.log` and
+  `C:\Users\Bane\AppData\Local\Temp\multiwfn-winpath-gui-1791886602927`.
+- Final local Linux host was rebuilt/staged after the fix. All 68 original
+  scientific files remain unchanged. Delivered sources differ from the CI
+  commit only in this record and workflow documentation.
+
+Ready to test: `C:\Users\Bane\Downloads\Multiwfn-Windows-winpath1\Multiwfn.exe`.
+[Windows download](https://github.com/bane-dysta/Multiwfn-stardust/actions/runs/38379097903/artifacts/11803189170).
+Delivery: `artifacts/2026-10-13/deliveries/multiwfn-winpath1/`, cumulative patch
+and incremental patch from `linux-entry1`, checked on freshly extracted sources.
+WIP-026/027/028: `artifacts/2026-10-13/wip/multiwfn-windows-path/`.
+
 ## Linux application entry — 2026-10-13 (accepted locally)
 
 Release: `workflows-linux-entry1`. Linux workflow builds now include the compiled

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 launcher_root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+workflow_mode=--launch
+if [[ "${1:-}" == --workbench ]]; then workflow_mode=--workbench; shift; fi
 runtime="$launcher_root/gui-sysroot"
 if [[ -d "$runtime/usr/lib/x86_64-linux-gnu" ]]; then
   export LD_LIBRARY_PATH="$runtime/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -20,8 +22,8 @@ if [[ -d "$runtime/usr/lib/x86_64-linux-gnu" ]]; then
     bwrap --dev-bind / / \
       --ro-bind /usr/lib/x86_64-linux-gnu "$mount_root/system" \
       --ro-bind "$mount_root/merged" /usr/lib/x86_64-linux-gnu \
-      "$launcher_root/resources/tools/matterviz-desktop" --launch "$@"
+      "$launcher_root/resources/tools/matterviz-desktop" "$workflow_mode" "$@"
     exit "$?"
   fi
 fi
-exec "$launcher_root/resources/tools/matterviz-desktop" --launch "$@"
+exec "$launcher_root/resources/tools/matterviz-desktop" "$workflow_mode" "$@"

@@ -19,7 +19,15 @@ export type WorkflowStatus = {
   job: WorkflowJob | null
 }
 export type WorkflowSelection = 'library' | 'results' | 'wavefunction'
-export type WorkflowRequest = { script: string; cores: number; variables: string[]; dryRun: boolean }
+export type WorkflowRequest = { script: string; cores: number; variables: string[]; dryRun: boolean; parameters?: Record<string, string> }
+export type WorkflowField = { id: string; name: string; group: string; label: string; type: string; value: string; expression?: string; source: string; help?: string; unit?: string; options: Array<{ value: string; label: string }> }
+export type WorkflowInspection = { version: number; runnable: boolean; fields: WorkflowField[]; tasks: Array<{ task: number; module: string; commands: string }>; diagnostics: string[] }
+export const display_path = (path: string | null | undefined): string => {
+  if (!path) return ''
+  if (path.startsWith('\\\\?\\UNC\\')) return '\\\\' + path.slice(8)
+  if (/^\\\\\?\\[a-z]:\\/i.test(path)) return path.slice(4)
+  return path
+}
 type WorkflowFetch = (url: URL, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>
 const JOB_STATES = ['running', 'cancelling', 'cancelled', 'prepared', 'completed', 'failed']
 
@@ -83,6 +91,12 @@ export const create_workflow_client = (
     pick: async (kind: WorkflowSelection) => parse_workflow_status(await call('pick', { kind })),
     cancel: async () => parse_workflow_status(await call('cancel', {})),
     run: async (body: WorkflowRequest) => parse_workflow_status(await call('run', body)),
+    inspect: async (script: string, parameters: Record<string, string>, variables: string[] = []): Promise<WorkflowInspection> => {
+      const value = await call('inspect', { script, parameters, variables }) as WorkflowInspection
+      if (value.version !== 1 || !Array.isArray(value.fields) || !Array.isArray(value.tasks) || !Array.isArray(value.diagnostics)) throw new Error('Invalid parameter description')
+      return value
+    },
+    parameterPath: async (type: string): Promise<string | null> => (await call('parameter-path', { type }) as { path: string | null }).path,
     preview: async (script: string): Promise<string> => {
       const value = await call('preview', undefined, script) as { id: string; source: string }
       if (value.id !== script || typeof value.source !== 'string' || value.source.length > 512 * 1024) {
