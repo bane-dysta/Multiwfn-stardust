@@ -1,5 +1,37 @@
 # BaneWfn workflow integration — 2026-10-06
 
+## Paired hole/electron display and readable filenames — 2026-10-16
+
+Continues accepted snapshot ace2610700029e54e0d20d888cb55475e0cce797;
+cumulative baseline remains ea0befc3aad728bdd61ede9b45a68725df490f5d.
+Presentation-only change: initial hole (_ole/_hole) surfaces are blue #2563eb,
+electron (_ele/_electron) surfaces green #16a34a. Exact directory + prefix pairs
+are adjacent, hole first, with a common header and translated field labels.
+Ambiguous/incomplete pairs stay separate. Explicit orbital/ESP roles are preserved.
+Original field values, signs, files and scientific calculations are untouched.
+Lists and dataset dropdowns abbreviate long names in the middle; the inspector
+provides the complete source filename, selectable/wrapped, plus hover titles.
+Custom representation names remain editable and retained.
+
+Validation: svelte-check 0 errors / 0 warnings; production build passed.
+Frontend suite: 303 passed / 1 skipped (node --test --test-concurrency=4).
+Updated extracted-function test harnesses inject the new presentation helper.
+Browser regression checks actual mesh colors, pair labels, source filename,
+isovalue edits and hide/show; passed, longest task 224 ms. Windows root entry
+-> workflow -> One-click render reused the user's two real 528660-point Cubes:
+both surfaces completed, distinct colors and paired labels verified, isovalue
+and visibility edits passed. No scientific calculation was rerun (one-atom XYZ
+I/O harness only). Logs/screenshots: build/result-pairs/; native replay helper:
+build/check_native_pairs.mjs. No Rust or scientific-core edits; CI not rerun.
+
+Ready Windows entry:
+`C:\Users\Bane\Downloads\BaneWfn-GUI-paired-cubes-20261016\banewfn_gui.exe`.
+Fresh ~88 MB directory, original packages preserved. Native executables match
+the prior CI artifact; locally rebuilt frontend, inventory local-paired-cubes-20261016,
+78 files verified. Linux build/banewfn_gui uses the same staged frontend.
+Temporary test Cube copies and isolated browser profile are removed after checks;
+the ready package is retained for user testing.
+
 ## Cube rendering responsiveness — 2026-10-16
 
 Continues accepted snapshot f1bcc80bf7603241a00cd4efcdd1742a16dda107;

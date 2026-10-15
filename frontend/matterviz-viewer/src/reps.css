@@ -14,9 +14,15 @@
 .rep-select > svg { color: #7c91a4; flex-shrink: 0; }
 .rep-number { font-size: 10px; font-variant-numeric: tabular-nums; color: #8a9aab; }
 .rep-row-copy { display: grid; flex: 1; min-width: 0; gap: 3px; }
-.rep-row-copy strong { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rep-row-copy small { font-size: 10px; color: #718198; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rep-row-copy strong { font-weight: 600; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+.rep-row-copy small { font-size: 10px; color: #718198; white-space: normal; overflow-wrap: anywhere; }
 .rep-row.muted .rep-row-copy { opacity: .5; }
+.rep-pair-heading { margin: 8px 4px 2px; font-size: 11px; font-weight: 600; overflow-wrap: anywhere; color: #536880; }
+.rep-row.paired { margin-left: 7px; border-left: 2px solid #c3dce6; }
+.rep-field-color { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.rep-source-file { padding: 0 16px 10px; display: grid; gap: 4px; font-size: 11px; }
+.rep-source-file > span:first-child { color: #758498; }
+.rep-source-file > span:last-child { overflow-wrap: anywhere; user-select: text; max-height: 5em; overflow: auto; }
 .rep-icon { display: inline-grid; place-items: center; flex-shrink: 0; width: 28px; height: 29px; border: 0; border-radius: 5px; padding: 0; color: #66798c; background: transparent; }
 .rep-icon:hover:not(:disabled) { background: #e4edf3; color: #155e76; }
 .rep-icon:disabled { opacity: .3; }

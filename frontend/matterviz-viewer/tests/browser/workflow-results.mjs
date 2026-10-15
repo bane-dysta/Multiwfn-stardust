@@ -51,18 +51,31 @@ try {
     }
   })
   await page.waitForFunction(() => window.surfaceGeometry('volume-1').length && window.surfaceGeometry('volume-2').length, {}, { timeout: 15000 })
-  const initial = await page.evaluate(() => window.surfaceGeometry('volume-1'))
+  assert.equal(await page.locator('.rep-pair-heading').innerText(), 'regression')
+  assert.ok(await page.locator('.rep-select').nth(1).innerText().then(text => text.includes('Hole density')))
+  assert.ok(await page.locator('.rep-select').nth(2).innerText().then(text => text.includes('Electron distribution')))
+  const colors = await page.evaluate(() => ['volume-1', 'volume-2'].map(id => {
+    const colors = []
+    window.renderScene.getObjectByName(`rep-copies-${id}`).traverseVisible(mesh => {
+      if (mesh.isMesh) colors.push(...[mesh.material].flat().map(material => material.color?.getHexString()))
+    })
+    return [...new Set(colors)]
+  }))
+  assert.ok(colors[0].includes('2563eb'), JSON.stringify(colors))
+  assert.ok(colors[1].includes('16a34a'), JSON.stringify(colors))
+  const initial = await page.evaluate(() => window.surfaceGeometry('volume-2'))
   await page.screenshot({ path: path.join(artifacts, 'two-surfaces.png') })
-  await page.locator('.rep-select').nth(1).click()
+  await page.locator('.rep-select').nth(2).click()
+  assert.ok(await page.locator('.rep-source-file').innerText().then(text => text.includes('regression_ele.cub')))
   await page.getByRole('spinbutton', { name: 'Isovalue', exact: true }).fill('0.002')
-  await page.waitForFunction(old => window.surfaceGeometry('volume-1').length && !window.surfaceGeometry('volume-1').some(id => old.includes(id)), initial)
+  await page.waitForFunction(old => window.surfaceGeometry('volume-2').length && !window.surfaceGeometry('volume-2').some(id => old.includes(id)), initial)
   await page.getByRole('button', { name: 'Hide regression_ele.cub', exact: true }).click()
-  await page.waitForFunction(() => !window.surfaceGeometry('volume-1').length && window.surfaceGeometry('volume-2').length)
+  await page.waitForFunction(() => !window.surfaceGeometry('volume-2').length && window.surfaceGeometry('volume-1').length)
   await page.getByRole('button', { name: 'Show regression_ele.cub', exact: true }).click()
-  await page.waitForFunction(() => window.surfaceGeometry('volume-1').length)
+  await page.waitForFunction(() => window.surfaceGeometry('volume-2').length)
   const longestTask = await page.evaluate(() => Math.max(0, ...window.renderLongTasks))
   assert.ok(longestTask < Number(process.env.RENDER_TASK_LIMIT_MS || 2000), `UI thread blocked for ${longestTask.toFixed(0)} ms`)
   assert.deepEqual(errors, [])
-  await writeFile(path.join(artifacts, 'checks.json'), JSON.stringify({ longestTask, errors, surfaces: 2, isovalueUpdated: true, visibilityUpdated: true }, null, 2))
+  await writeFile(path.join(artifacts, 'checks.json'), JSON.stringify({ longestTask, errors, surfaces: 2, colors, paired: true, sourceFileVisible: true, isovalueUpdated: true, visibilityUpdated: true }, null, 2))
   console.log(`PASS: two real surface meshes, changed geometry, hide/show; longest UI task ${longestTask.toFixed(0)} ms`)
 } finally { await browser.close() }

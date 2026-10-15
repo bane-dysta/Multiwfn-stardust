@@ -74,7 +74,7 @@ suffix last to remain compatible with vcube:
 | --- | --- |
 | `_den.cub` | Electron-density surface |
 | `_elf.cub`, `_lol.cub` | ELF / LOL surface |
-| `_ole.cub`, `_ele.cub` | Hole / electron distribution |
+| `_ole.cub`, `_ele.cub` | Blue hole / green electron distribution |
 | `_oH.cub`, `_oH1.cub` | HOMO / HOMO−1, both signs |
 | `_oL.cub`, `_oL1.cub` | LUMO / LUMO+1, both signs |
 | `_au_esp.cub`, `_kcal_esp.cub` | ESP mapped onto the matching density |
@@ -96,6 +96,16 @@ without interpolation. Unknown Cube names open as ordinary scalar fields.
 Display isovalues are adjustable and do not change computational parameters.
 Long aliases `_hole` / `_electron` and orbital offsets above 1 are also accepted
 by the GUI; use the short suffixes when a vcube script requires them.
+
+Hole/electron files with the same directory and exact prefix form a display
+group, with the hole first. Each group needs exactly one of each type; ambiguous
+or incomplete pairs remain separate. Both fields retain their original positive
+values: blue/green distinguishes their physical meaning, not their sign. Each
+layer keeps its own visibility, isovalue and editable color. Group headings show
+the common prefix; layer names identify the field in the selected UI language.
+Long filenames and dataset choices use middle abbreviation to retain the state
+and type suffix. Hover for the full name, or select a layer to read/copy its
+complete source filename in the inspector. Files on disk are not renamed.
 
 Each window owns a temporary view session, removed on normal close. Source
 outputs stay in the workflow directory; same-filesystem hard links avoid copying

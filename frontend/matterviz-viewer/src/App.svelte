@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t, locale, set_locale, sync_document_locale, ui_message, format_message, type UiMessage } from './i18n'
   import { normalize_lighting } from './lighting'
+  import { group_result_entries, result_field } from './result-presentation'
   import {
     DEFAULT_ISOSURFACE_SETTINGS,
     Icon,
@@ -665,7 +666,7 @@
     const espPotential = entry.analysisKind === 'esp-potential'
     return {
       isovalue: Math.abs(Number(entry.isovalue ?? (signed ? 0.02 : 0.001))),
-      color: espPotential ? ESP_COLORS.positive : signed ? '#2563eb' : '#9ca3af',
+      color: result_field(entry)?.color ?? (espPotential ? ESP_COLORS.positive : signed ? '#2563eb' : '#9ca3af'),
       negative_color: espPotential ? ESP_COLORS.negative : '#dc2626',
       opacity: Number(entry.opacity ?? 0.82),
       visible: entry.visible !== false,
@@ -1161,7 +1162,7 @@
       const availableBondMethod = Object.entries(manifest.bondAnalysis?.methods ?? {})
         .find(([, capability]) => capability.available !== false)?.[0]
       if (availableBondMethod) bondMethod = availableBondMethod
-      const entries = cube_entries(manifest)
+      const entries = group_result_entries(cube_entries(manifest))
       if (manifest.structure?.path) await load_structure()
       else structure = undefined
       clear_esp_tools()

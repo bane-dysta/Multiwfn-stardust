@@ -6,6 +6,7 @@ import { color_stop_interpolator } from 'matterviz/colors/stops'
 import { apply_manifest_color_mapping } from '../src/volume-mapping.ts'
 import { migrate_reps, remap_rep_sources } from '../src/reps.ts'
 import { read_geometry_memory_budget } from '../src/volume.ts'
+import { result_field } from '../src/result-presentation.ts'
 
 const template = await readFile(new URL('../../../tests/fixtures/weak-interaction-vmd/IRIfill.vmd', import.meta.url), 'utf8')
 const range = template.match(/mol scaleminmax top 1 ([-.\d]+) ([-.\d]+)/)!.slice(1).map(Number) as [number, number]
@@ -65,7 +66,7 @@ test('the production manifest loader retains native geometry budgets on append a
     ['/invalid', '-1'], ['/no-memory', '0'],
   ])
   const loader = new Function('env', `
-    const { fetch, read_geometry_memory_budget, apply_manifest_color_mapping } = env
+    const { fetch, read_geometry_memory_budget, apply_manifest_color_mapping, result_field } = env
     let structure = {}, manifest = {}, volumeEntries = [], volumetricData = [], isosurfaceSettings = {}, activeVolumeIdx = 0
     const DEFAULT_ISOSURFACE_SETTINGS = {}, ESP_COLORS = {}, display_range = () => undefined
     const resolve_volume_entry_url = (entry, base) => new URL(entry.path, base)
@@ -74,7 +75,7 @@ test('the production manifest loader retains native geometry budgets on append a
     ${code}
     return { apply_entries, replace_volume_entry, settings: () => isosurfaceSettings }
   `)({
-    read_geometry_memory_budget, apply_manifest_color_mapping,
+    read_geometry_memory_budget, apply_manifest_color_mapping, result_field,
     fetch: async (url: URL) => {
       const headers = new Headers({ 'content-type': 'application/vnd.multiwfn.volume' })
       const budget = responseHeaders.get(url.pathname)

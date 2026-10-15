@@ -9,15 +9,24 @@
   import ColorScaleEditor from './ColorScaleEditor.svelte'
   import { volume_color_scale } from './color-scale'
   import type { Snippet } from 'svelte'
+  import type { ManifestEntry } from './manifest'
+  import { compact_result_name, result_field, result_filename, result_pairs } from './result-presentation'
 
   let { collection, entries, sourceCell, onchange, onadd, onclose, scene, errors = {} }: {
-    collection: RepCollection; entries: Array<{ name?: string; path: string }>; sourceCell?: Cell
+    collection: RepCollection; entries: ManifestEntry[]; sourceCell?: Cell
     onchange: (value: RepCollection) => void; onadd: () => void; onclose: () => void
     scene: Snippet; errors?: Record<string, string>
   } = $props()
   let mode = $state('reps')
   let tab = $state('data')
   const selected = $derived(collection.items.find((rep) => rep.id === collection.selectedId))
+  const pairs = $derived(result_pairs(entries))
+  const source_entry = (rep: Rep | undefined) => rep?.source.kind === 'volume' ? entries[rep.source.index] : undefined
+  const pair_group = (rep: Rep | undefined) => {
+    const field = result_field(source_entry(rep))
+    return field && pairs.has(field.group) ? field.group : undefined
+  }
+  const selectedSource = $derived(source_entry(selected))
   const patch = (value: Partial<Rep>) => {
     if (selected) onchange({ ...collection, items: collection.items.map((rep) => rep.id === selected.id ? { ...rep, ...value, followData: false } : rep) })
   }
@@ -74,10 +83,16 @@
   {:else}
     <div class="rep-list" role="list" aria-label={$t('Representations')}>
       {#each collection.items as rep, index (rep.id)}
-        <div class="rep-row" class:selected={selected?.id === rep.id} class:muted={!rep.visible} role="listitem">
+        {@const entry = source_entry(rep)}
+        {@const field = result_field(entry)}
+        {@const group = pair_group(rep)}
+        {#if group && group !== pair_group(collection.items[index - 1])}
+          <div class="rep-pair-heading" role="listitem" title={group}>{compact_result_name(group)}</div>
+        {/if}
+        <div class="rep-row" class:paired={Boolean(group)} class:selected={selected?.id === rep.id} class:muted={!rep.visible} role="listitem">
           <button type="button" class="rep-icon rep-visibility" aria-label={$t(rep.visible ? 'Hide {name}' : 'Show {name}', { name: rep.name })} aria-pressed={rep.visible} onclick={() => onchange({ ...collection, items: collection.items.map((item) => item.id === rep.id ? { ...item, visible: !item.visible, followData: false } : item) })}>{#if rep.visible}<Eye size={15} />{:else}<EyeOff size={15} />{/if}</button>
-          <button type="button" class="rep-select" aria-pressed={selected?.id === rep.id} onclick={() => onchange({ ...collection, selectedId: rep.id })}>
-            <span class="rep-number">{String(index + 1).padStart(2, '0')}</span><span class="rep-row-copy"><strong>{rep.name}</strong><small>{#if errors[rep.id]}{$t(errors[rep.id])}{:else}{$t(rep.source.kind === 'structure' ? 'Structure' : 'Volume data')} · {$t(rep.source.kind === 'structure' ? REPRESENTATION_PRESETS.find((preset) => preset.value === rep.structure.style)?.label ?? '' : rep.volume.wireframe ? 'Wireframe' : 'Isosurface')}{/if}</small></span>
+          <button type="button" class="rep-select" title={entry ? `${rep.name}\n${result_filename(entry)}` : rep.name} aria-pressed={selected?.id === rep.id} onclick={() => onchange({ ...collection, selectedId: rep.id })}>
+            <span class="rep-number">{String(index + 1).padStart(2, '0')}</span><span class="rep-row-copy"><strong>{#if field}<span class="rep-field-color" style:background={rep.volume.color}></span>{/if}{group && field && rep.name === entry?.name ? $t(field.label) : compact_result_name(rep.name)}</strong><small>{#if errors[rep.id]}{$t(errors[rep.id])}{:else if group && entry}{compact_result_name(result_filename(entry))}{:else}{$t(field?.label ?? (rep.source.kind === 'structure' ? 'Structure' : 'Volume data'))} · {$t(rep.source.kind === 'structure' ? REPRESENTATION_PRESETS.find((preset) => preset.value === rep.structure.style)?.label ?? '' : rep.volume.wireframe ? 'Wireframe' : 'Isosurface')}{/if}</small></span>
             {#if rep.source.kind === 'structure'}<Atom size={15} />{:else}<Layers size={15} />{/if}
           </button>
         </div>
@@ -93,6 +108,7 @@
     </div>
     {#if selected}
       <label class="rep-name"><span>{$t('Rep name')}</span><input value={selected.name} aria-label={$t('Rep name')} maxlength="120" onchange={(event) => patch({ name: event.currentTarget.value.trim() || 'Rep' })} /></label>
+      {#if selectedSource}<div class="rep-source-file"><span>{$t('Source file')}</span><span title={result_filename(selectedSource)}>{result_filename(selectedSource)}</span></div>{/if}
       <Tabs.Root bind:value={tab} class="rep-tabs min-h-0 gap-0">
         <Tabs.List class="rep-tab-bar w-auto h-9 p-1 gap-0.5" aria-label={$t('Rep settings')}>
           <Tabs.Trigger class="text-[11px] px-1 gap-1" value="data"><Atom size={13} />{$t('Data & drawing')}</Tabs.Trigger>
@@ -104,7 +120,7 @@
             <div class="rep-section-label"><span>01</span>{$t('Data source')}</div>
             <label class="rep-field"><span>{$t('Source type')}</span><select value={selected.source.kind} onchange={(event) => source_kind(event.currentTarget.value)}><option value="structure">{$t('Structure')}</option><option value="volume" disabled={!entries.length}>{$t('Volume data')}</option></select></label>
             {#if selected.source.kind === 'volume'}
-              <label class="rep-field"><span>{$t('Dataset')}</span><select value={selected.source.index} onchange={(event) => { const index = Number(event.currentTarget.value); patch({ source: dataset_source(entries, index), volume: { ...selected!.volume, volume_idx: index } }) }}>{#each entries as entry, index}<option value={index}>{entry.name ?? entry.path}</option>{/each}</select></label>
+              <label class="rep-field"><span>{$t('Dataset')}</span><select value={selected.source.index} onchange={(event) => { const index = Number(event.currentTarget.value); patch({ source: dataset_source(entries, index), volume: { ...selected!.volume, volume_idx: index } }) }}>{#each entries as entry, index}<option value={index} title={result_filename(entry)}>{compact_result_name(result_filename(entry))}</option>{/each}</select></label>
             {:else}
               <label class="rep-field"><span>{$t('Atom selection')}</span><input value={selected.structure.selection} onchange={(event) => patch({ structure: { ...selected!.structure, selection: event.currentTarget.value } })} aria-describedby="rep-selection-help" /></label>
               <p id="rep-selection-help" class="rep-help">{$t('Use all, element C O, or index 1-6, 9. Atom indices start at 1.')}</p>
@@ -120,7 +136,7 @@
               <label class="rep-field"><span>{$t('Isovalue')}</span><input type="number" step="0.001" value={selected.volume.isovalue} oninput={(event) => numeric(event, (isovalue) => patch({ volume: { ...selected!.volume, isovalue } }))} /></label>
               <label class="rep-toggle"><input type="checkbox" checked={selected.volume.show_negative} onchange={(event) => patch({ volume: { ...selected!.volume, show_negative: event.currentTarget.checked } })} />{$t('Show negative isosurface')}</label>
               <div class="rep-fields"><label class="rep-field"><span>{$t('Positive color')}</span><input type="color" value={selected.volume.color} oninput={(event) => patch({ volume: { ...selected!.volume, color: event.currentTarget.value } })} /></label><label class="rep-field"><span>{$t('Negative color')}</span><input type="color" value={selected.volume.negative_color} oninput={(event) => patch({ volume: { ...selected!.volume, negative_color: event.currentTarget.value } })} /></label></div>
-              <label class="rep-field"><span>{$t('Color by')}</span><select value={selected.volume.color_volume_idx ?? -1} onchange={(event) => { const index = Number(event.currentTarget.value); patch({ volume: { ...selected!.volume, color_volume_idx: index < 0 ? undefined : index, colorSourcePath: entries[index]?.path, colorSourceSlot: dataset_source(entries, index).slot, colormap: selected!.volume.colormap ?? 'interpolateTransFlag' } }) }}><option value="-1">{$t('Solid colors')}</option>{#each entries as entry, index}<option value={index}>{entry.name ?? entry.path}</option>{/each}</select></label>
+              <label class="rep-field"><span>{$t('Color by')}</span><select value={selected.volume.color_volume_idx ?? -1} onchange={(event) => { const index = Number(event.currentTarget.value); patch({ volume: { ...selected!.volume, color_volume_idx: index < 0 ? undefined : index, colorSourcePath: entries[index]?.path, colorSourceSlot: dataset_source(entries, index).slot, colormap: selected!.volume.colormap ?? 'interpolateTransFlag' } }) }}><option value="-1">{$t('Solid colors')}</option>{#each entries as entry, index}<option value={index} title={result_filename(entry)}>{compact_result_name(result_filename(entry))}</option>{/each}</select></label>
               {#if selected.volume.color_volume_idx !== undefined}
                 {#key selected.id}<ColorScaleEditor value={volume_color_scale(selected.volume)} onchange={(colorScale) => patch({ volume: { ...selected!.volume, colorScale } })} />{/key}
                 <label class="rep-toggle"><input type="checkbox" checked={Boolean(selected.volume.color_range)} onchange={(event) => patch({ volume: { ...selected!.volume, color_range: event.currentTarget.checked ? [-0.05, 0.05] : undefined } })} />{$t('Manual color range')}</label>

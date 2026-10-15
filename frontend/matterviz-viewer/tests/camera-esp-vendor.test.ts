@@ -7,6 +7,7 @@ import { Color } from 'three'
 import ts from 'typescript'
 import { createServer } from 'vite'
 import { ESP_COLORS, ESP_COLORMAP, surface_colormap } from '../src/esp.ts'
+import { result_field } from '../src/result-presentation.ts'
 import { create_workbench_state, parse_workbench_state, restore_workbench_state } from '../src/state.ts'
 
 test('native control edits survive camera snapshots and accept external reset', async () => {
@@ -115,7 +116,7 @@ test('direct signed ESP surfaces use the same sign colors as mapped ESP', async 
   const declaration = ts.transpileModule(app.slice(start, end), {
     compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
   }).outputText
-  const createLayer = new Function('ESP_COLORS', `${declaration}; return layer_for_entry`)(ESP_COLORS)
+  const createLayer = new Function('ESP_COLORS', 'result_field', `${declaration}; return layer_for_entry`)(ESP_COLORS, result_field)
   const esp = createLayer({ mode: 'signed', analysisKind: 'esp-potential' }, 1)
   assert.equal(esp.color, ESP_COLORS.positive)
   assert.equal(esp.negative_color, ESP_COLORS.negative)

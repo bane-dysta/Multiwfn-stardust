@@ -3,6 +3,7 @@ export const zh = {
   'Electron localization function': '电子定域函数',
   'Localized orbital locator': '定域轨道指示函数',
   'Hole density': '空穴密度',
+  'Source file': '源文件',
   'Electron distribution': '电子分布',
   'Cube volume': 'Cube 体数据',
   'ESP data unit': '静电势数据单位',
